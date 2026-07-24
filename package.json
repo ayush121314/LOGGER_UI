@@ -1,0 +1,23 @@
+{
+  "name": "logapp",
+  "version": "1.0.0",
+  "description": "Live log viewer with a Grafana-style browser UI for any local server. Pipe a process into it and watch live logs at localhost:9999.",
+  "bin": {
+    "logapp": "bin/logapp.js"
+  },
+  "scripts": {
+    "start": "node bin/logapp.js"
+  },
+  "keywords": [
+    "logs",
+    "log-viewer",
+    "grafana",
+    "live-tail",
+    "sse",
+    "pino"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  }
+}

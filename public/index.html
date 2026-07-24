@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>logapp — live logs</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #12161f; --panel2: #171c28; --border: #232a38;
+    --text: #d7dde8; --muted: #8b98a5; --accent: #4C9AFF;
+    --info: #4C9AFF; --warn: #FFAB00; --error: #FF5630; --fatal: #FF1744;
+    --debug: #8b98a5; --trace: #5a6577;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  .brand { font-weight: 700; letter-spacing: .5px; display: flex; align-items: center; gap: 8px; }
+  .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--error); box-shadow: 0 0 8px currentColor; }
+  .brand.on .dot { background: #57D9A3; }
+  .spacer { flex: 1; }
+  input[type=text] {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 7px 11px; min-width: 240px; outline: none; font-size: 13px;
+  }
+  input[type=text]:focus { border-color: var(--accent); }
+  button {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 7px 11px; cursor: pointer; font-size: 12.5px;
+  }
+  button:hover { border-color: #33405a; }
+  button.active { background: #1c2740; border-color: var(--accent); color: #fff; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 20px;
+    background: var(--panel2); border: 1px solid var(--border); cursor: pointer; font-size: 12px; user-select: none;
+  }
+  .chip .sw { width: 8px; height: 8px; border-radius: 50%; }
+  .chip.off { opacity: .38; }
+  .chip .cnt { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .lvl-info { color: var(--info); } .lvl-warn { color: var(--warn); }
+  .lvl-error { color: var(--error); } .lvl-fatal { color: var(--fatal); }
+  .lvl-debug { color: var(--debug); } .lvl-trace { color: var(--trace); }
+  #log { flex: 1; overflow-y: auto; padding: 6px 0 40px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  .row { display: flex; gap: 10px; padding: 2px 14px; border-left: 3px solid transparent; white-space: pre; cursor: default; }
+  .row.wrap { white-space: pre-wrap; word-break: break-word; }
+  .row:hover { background: #10151f; }
+  .row.error, .row.fatal { border-left-color: var(--error); background: rgba(255,86,48,.06); }
+  .row.warn { border-left-color: var(--warn); background: rgba(255,171,0,.05); }
+  .row .t { color: #5a6577; flex: none; }
+  .row .lvl { flex: none; width: 46px; font-weight: 700; text-transform: uppercase; font-size: 10.5px; padding-top: 1px; }
+  .row .src { flex: none; font-weight: 600; }
+  .row .msg { flex: 1 1 auto; min-width: 0; }
+  .row .msg mark { background: #ffd43b; color: #000; border-radius: 2px; }
+  .row.has-fields .msg { cursor: pointer; }
+  .row.has-fields .msg::before { content: "▸ "; color: var(--muted); }
+  .row.open .msg::before { content: "▾ "; }
+  .fields { padding: 6px 14px 10px 78px; background: #0d1119; border-left: 3px solid #2a3346; overflow-x: auto; }
+  .fields pre { margin: 0; color: #9fb0c3; font-family: inherit; font-size: 12px; }
+  .fields .k { color: #7aa2f7; }
+  #newbtn {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 20px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.4); display: none; z-index: 5;
+  }
+  .empty { color: var(--muted); text-align: center; padding: 60px 20px; }
+  .empty code { background: var(--panel2); padding: 2px 7px; border-radius: 5px; color: #9fb0c3; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand" id="brand"><span class="dot"></span>logapp</div>
+  <div class="chips" id="streams"></div>
+  <div class="chips" id="levels"></div>
+  <input type="text" id="search" placeholder="search logs…" autocomplete="off" />
+  <div class="spacer"></div>
+  <button id="pause">⏸ Pause</button>
+  <button id="wrap">↵ Wrap</button>
+  <button id="clear">Clear</button>
+  <button id="download">Download</button>
+</header>
+<div id="log">
+  <div class="empty" id="empty">
+    Waiting for logs… run a server with <code>… | logapp</code> (or append <code>--logapp</code>).
+  </div>
+</div>
+<button id="newbtn">↓ new logs</button>
+
+<script>
+const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
+const levelOn = { trace: false, debug: true, info: true, warn: true, error: true, fatal: true }
+const streamState = {}
+const events = []
+const MAX_DOM = 3500
+let paused = false, wrap = false, atBottom = true, pendingNew = 0
+
+const logEl = document.getElementById('log')
+const emptyEl = document.getElementById('empty')
+const streamsEl = document.getElementById('streams')
+const levelsEl = document.getElementById('levels')
+const searchEl = document.getElementById('search')
+const brandEl = document.getElementById('brand')
+const newBtn = document.getElementById('newbtn')
+
+function esc (s) { return s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) }
+
+function highlight (text) {
+  const q = searchEl.value.trim()
+  const safe = esc(text)
+  if (!q) return safe
+  try {
+    const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig')
+    return safe.replace(re, '<mark>$1</mark>')
+  } catch (e) { return safe }
+}
+
+function fmtTime (ts) {
+  const d = new Date(ts)
+  const p = (n, l = 2) => String(n).padStart(l, '0')
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + '.' + p(d.getMilliseconds(), 3)
+}
+
+function buildLevels () {
+  levelsEl.innerHTML = ''
+  LEVELS.forEach(lv => {
+    const c = document.createElement('div')
+    c.className = 'chip lvl-' + lv + (levelOn[lv] ? '' : ' off')
+    c.innerHTML = '<span class="sw" style="background:currentColor"></span>' + lv
+    c.onclick = () => { levelOn[lv] = !levelOn[lv]; c.classList.toggle('off'); rerender() }
+    levelsEl.appendChild(c)
+  })
+}
+
+function renderStreamChips () {
+  streamsEl.innerHTML = ''
+  const names = Object.keys(streamState)
+  if (names.length > 1) {
+    names.forEach(n => {
+      const s = streamState[n]
+      const c = document.createElement('div')
+      c.className = 'chip' + (s.on ? '' : ' off')
+      c.innerHTML = '<span class="sw" style="background:' + s.color + '"></span>' +
+        esc(n) + ' <span class="cnt">' + s.count + '</span>' +
+        (s.status === 'ended' ? ' ·' : '')
+      c.onclick = () => { s.on = !s.on; renderStreamChips(); rerender() }
+      streamsEl.appendChild(c)
+    })
+  }
+}
+
+function passes (ev) {
+  if (!levelOn[ev.level]) return false
+  const s = streamState[ev.stream]
+  if (s && !s.on) return false
+  const q = searchEl.value.trim().toLowerCase()
+  if (q && !(ev.msg.toLowerCase().includes(q) || ev.raw.toLowerCase().includes(q))) return false
+  return true
+}
+
+function rowHtml (ev) {
+  const hasFields = ev.fields && Object.keys(ev.fields).length > 0
+  return '<div class="row ' + ev.level + (wrap ? ' wrap' : '') + (hasFields ? ' has-fields' : '') + '" data-id="' + ev.id + '">' +
+    '<span class="t">' + fmtTime(ev.ts) + '</span>' +
+    '<span class="lvl lvl-' + ev.level + '">' + ev.level + '</span>' +
+    '<span class="src" style="color:' + ev.color + '">' + esc(ev.stream) + '</span>' +
+    '<span class="msg">' + highlight(ev.msg || ev.raw) + '</span>' +
+    '</div>'
+}
+
+function appendRow (ev) {
+  if (!passes(ev)) return
+  emptyEl.style.display = 'none'
+  const tmp = document.createElement('div')
+  tmp.innerHTML = rowHtml(ev)
+  logEl.appendChild(tmp.firstChild)
+  while (logEl.children.length > MAX_DOM + 1) {
+    if (logEl.children[0] === emptyEl) break
+    logEl.removeChild(logEl.children[0] === emptyEl ? logEl.children[1] : logEl.children[0])
+  }
+}
+
+function rerender () {
+  Array.from(logEl.querySelectorAll('.row, .fields')).forEach(n => n.remove())
+  const slice = events.slice(-MAX_DOM)
+  let html = ''
+  slice.forEach(ev => { if (passes(ev)) html += rowHtml(ev) })
+  logEl.insertAdjacentHTML('beforeend', html)
+  emptyEl.style.display = logEl.querySelector('.row') ? 'none' : 'block'
+  if (atBottom && !paused) scrollBottom()
+}
+
+function scrollBottom () { logEl.scrollTop = logEl.scrollHeight; pendingNew = 0; newBtn.style.display = 'none' }
+
+logEl.addEventListener('scroll', () => {
+  atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40
+  if (atBottom) { pendingNew = 0; newBtn.style.display = 'none' }
+})
+
+logEl.addEventListener('click', (e) => {
+  const row = e.target.closest('.row.has-fields')
+  if (!row) return
+  const id = row.getAttribute('data-id')
+  const next = row.nextElementSibling
+  if (next && next.classList.contains('fields')) { next.remove(); row.classList.remove('open'); return }
+  const ev = events.find(x => String(x.id) === id)
+  if (!ev) return
+  const f = document.createElement('div')
+  f.className = 'fields'
+  f.innerHTML = '<pre>' + esc(JSON.stringify(ev.fields, null, 2)) + '</pre>'
+  row.after(f); row.classList.add('open')
+})
+
+function showNew () { newBtn.textContent = '↓ ' + pendingNew + ' new logs'; newBtn.style.display = 'block' }
+
+function addEvent (ev, live) {
+  events.push(ev)
+  if (events.length > 8000) events.splice(0, events.length - 8000)
+  if (!streamState[ev.stream]) {
+    streamState[ev.stream] = { color: ev.color, on: true, count: 0, status: 'running' }
+    renderStreamChips()
+  }
+  streamState[ev.stream].count++
+  if (!live) return
+  if (paused) { if (passes(ev)) { pendingNew++; showNew() } return }
+  appendRow(ev)
+  if (passes(ev)) {
+    if (atBottom) scrollBottom()
+    else { pendingNew++; showNew() }
+  }
+}
+
+function applyStream (s) {
+  if (!streamState[s.name]) streamState[s.name] = { color: s.color, on: true, count: s.count, status: s.status }
+  else { streamState[s.name].color = s.color; streamState[s.name].status = s.status }
+  renderStreamChips()
+}
+
+let es
+function connect () {
+  es = new EventSource('/events')
+  es.onopen = () => brandEl.classList.add('on')
+  es.onerror = () => brandEl.classList.remove('on')
+  es.onmessage = (m) => {
+    const data = JSON.parse(m.data)
+    if (data.type === 'snapshot') {
+      (data.streams || []).forEach(applyStream)
+      data.events.forEach(ev => addEvent(ev, false))
+      rerender()
+    } else if (data.type === 'log') {
+      addEvent(data.event, true)
+    } else if (data.type === 'stream') {
+      applyStream(data.stream)
+    }
+  }
+}
+
+document.getElementById('pause').onclick = (e) => {
+  paused = !paused
+  e.target.classList.toggle('active', paused)
+  e.target.textContent = paused ? '▶ Resume' : '⏸ Pause'
+  if (!paused) { rerender(); scrollBottom() }
+}
+document.getElementById('wrap').onclick = (e) => { wrap = !wrap; e.target.classList.toggle('active', wrap); rerender() }
+document.getElementById('clear').onclick = () => { events.length = 0; rerender() }
+document.getElementById('download').onclick = () => {
+  const text = events.map(ev => new Date(ev.ts).toISOString() + ' [' + ev.level + '] ' + ev.stream + ' ' + ev.raw).join('\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }))
+  a.download = 'logapp.log'; a.click()
+}
+newBtn.onclick = () => { rerender(); scrollBottom() }
+setInterval(renderStreamChips, 1000)
+let searchTimer
+searchEl.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(rerender, 140) })
+
+buildLevels()
+connect()
+</script>
+</body>
+</html>
