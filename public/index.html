@@ -155,6 +155,7 @@
   .details .js { color: #7ec699; }
   .details .jn { color: #b5f0a5; }
   .details .jb { color: #ff9830; }
+  .details mark { background: #b9840f; color: #fff; border-radius: 1px; padding: 0 1px; }
 
   #newbtn { position: fixed; left: calc(50% + 146px); transform: translateX(-50%); bottom: 22px;
     background: var(--blue); color: #fff; border: none; padding: 6px 15px; border-radius: 14px;
@@ -298,14 +299,24 @@ function matchNoLevel (ev) {
   return lineMatch(ev)
 }
 
+function activeTerms () {
+  const t = lineFilters.filter((f) => f.op === 'contains' && f.value).map((f) => f.value)
+  if (quickSearch) t.push(quickSearch)
+  return t
+}
 function highlight (text) {
   let safe = esc(text)
-  const terms = lineFilters.filter((f) => f.op === 'contains' && f.value).map((f) => f.value)
-  if (quickSearch) terms.push(quickSearch)
-  terms.forEach((t) => {
+  activeTerms().forEach((t) => {
     try { safe = safe.replace(new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>') } catch (e) {}
   })
   return safe
+}
+function markTerms (html) {
+  const terms = activeTerms()
+  if (!terms.length) return html
+  let re
+  try { re = new RegExp('(' + terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'ig') } catch (e) { return html }
+  return html.replace(/(<[^>]+>)|([^<]+)/g, (m, tag, text) => tag || text.replace(re, '<mark>$1</mark>'))
 }
 
 function renderActiveFilters () {
@@ -330,7 +341,7 @@ function rowHtml (ev, dupCount) {
   m += '</div>'
   let det = ''
   if (expanded.has(ev.id) && hasFields) {
-    det = '<div class="details"><pre class="json mono">' + hljson(ev.fields) + '</pre></div>'
+    det = '<div class="details"><pre class="json mono">' + markTerms(hljson(ev.fields)) + '</pre></div>'
   }
   return '<div class="row ' + ev.level + (wrap ? ' wrap' : '') + (showTime ? '' : ' notime') + '" data-id="' + ev.id + '">' +
     '<div class="bar"></div>' + t + lv + m + det + '</div>'
