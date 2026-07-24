@@ -424,7 +424,7 @@ logEl.addEventListener('scroll', hideSel)
 
 function addEvent (ev, isLive) {
   events.push(ev)
-  if (events.length > 9000) events.splice(0, events.length - 9000)
+  if (events.length > 30000) events.splice(0, events.length - 30000)
   if (!streamState[ev.stream]) streamState[ev.stream] = { color: appColor(ev.stream), port: null }
   if (prettify && ev.fields) expanded.add(ev.id)
   if (!isLive) return

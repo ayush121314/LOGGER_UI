@@ -13,7 +13,7 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public')
 const STATE_DIR = path.join(os.homedir(), '.logapp')
 const PID_FILE = path.join(STATE_DIR, 'daemon.pid')
 const DAEMON_LOG = path.join(STATE_DIR, 'daemon.log')
-const MAX_BUFFER = 6000
+const MAX_BUFFER = Number(process.env.LOGAPP_BUFFER) || 20000
 
 const PALETTE = ['#4C9AFF', '#57D9A3', '#FFAB00', '#FF5630', '#B37FEB', '#00C7E6', '#F76707', '#20C997', '#845EF7', '#FF8787', '#38D9A9', '#FCC419']
 
@@ -109,12 +109,27 @@ function runDaemon () {
     let tries = 0
     const timer = setInterval(() => {
       tries++
-      if (tries > 14) { clearInterval(timer); return }
+      if (tries > 20) { clearInterval(timer); return }
       const s = streams.get(name)
       if (!s || s.port) { clearInterval(timer); return }
-      exec('ps -o pid= -g ' + pgid, (e, gout) => {
-        if (e) return
-        const gpids = new Set(gout.split(/\s+/).filter(Boolean))
+      exec('ps -ax -o pid=,ppid=,pgid=', (e, psout) => {
+        if (e || !psout) return
+        const childrenOf = new Map()
+        const pgidOf = new Map()
+        psout.split('\n').forEach((line) => {
+          const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)/)
+          if (!m) return
+          pgidOf.set(m[1], m[3])
+          if (!childrenOf.has(m[2])) childrenOf.set(m[2], [])
+          childrenOf.get(m[2]).push(m[1])
+        })
+        const allowed = new Set()
+        const stack = []
+        pgidOf.forEach((pg, pid) => { if (pg === String(pgid)) { allowed.add(pid); stack.push(pid) } })
+        while (stack.length) {
+          const pid = stack.pop()
+          ;(childrenOf.get(pid) || []).forEach((k) => { if (!allowed.has(k)) { allowed.add(k); stack.push(k) } })
+        }
         exec('lsof -nP -iTCP -sTCP:LISTEN -Fpn 2>/dev/null', (e2, lout) => {
           if (e2 || !lout) return
           let cur = null, found = null
@@ -122,7 +137,7 @@ function runDaemon () {
             if (line[0] === 'p') cur = line.slice(1)
             else if (line[0] === 'n') {
               const m = line.slice(1).match(/:(\d+)$/)
-              if (m && cur && gpids.has(cur) && cur !== String(clientPid) && m[1] !== String(PORT) && !found) found = m[1]
+              if (m && cur && allowed.has(cur) && cur !== String(clientPid) && m[1] !== String(PORT) && !found) found = m[1]
             }
           })
           if (found) {
