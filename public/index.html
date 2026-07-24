@@ -15,7 +15,7 @@
     --l-warn: #eab839; --l-error: #e24d42; --l-fatal: #705da0; --l-unknown: #8e8e93;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
   body { background: var(--canvas); color: var(--text); overflow: hidden;
     font: 13px/1.5 Inter, "Helvetica Neue", Arial, -apple-system, BlinkMacSystemFont, sans-serif;
     display: flex; flex-direction: column; }
@@ -64,16 +64,18 @@
   .lin { background: var(--input); border: 1px solid var(--border2); color: var(--text); border-radius: 2px; padding: 6px 10px; outline: none; width: 260px; }
   .lin:focus, .sel:focus { border-color: var(--blue); }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-  .fchip { display: inline-flex; align-items: center; gap: 6px; background: var(--blue-bg); border: 1px solid #24406e;
+  .fchip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; background: var(--blue-bg); border: 1px solid #24406e;
     border-radius: 2px; padding: 3px 8px; font-size: 12px; }
-  .fchip .op { color: var(--blue2); font-weight: 700; font-family: "Roboto Mono", monospace; }
-  .fchip .x { color: var(--faint); cursor: pointer; }
+  .fchip .op { color: var(--blue2); font-weight: 700; font-family: "Roboto Mono", monospace; flex: none; }
+  .fchip .fval { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fchip .x { color: var(--faint); cursor: pointer; flex: none; }
   .fchip .x:hover { color: var(--text); }
+  .chips { max-width: 100%; }
 
   /* layout: left sidebar + center logs */
   .app { flex: 1; display: flex; min-height: 0; }
   .sidebar { width: 292px; flex: none; background: var(--panel); border-right: 1px solid var(--border);
-    overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px; }
+    overflow-x: hidden; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px; }
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
   .sb-sec { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
   .sb-h { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
@@ -133,7 +135,7 @@
   .row.error .lvl { color: var(--l-error); } .row.fatal .lvl { color: var(--l-fatal); }
   .row .m { padding: 3px 12px 3px 0; color: var(--text); white-space: pre; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
   .row.wrap .m { white-space: pre-wrap; word-break: break-word; }
-  .row:hover { background: var(--hover); cursor: pointer; }
+  .row:hover { background: var(--hover); }
   .row .m .src { color: var(--blue2); margin-right: 8px; }
   .row .m mark { background: #b9840f; color: #fff; border-radius: 1px; }
   .row .m .dup { display: inline-block; margin-left: 8px; background: var(--raised); color: var(--weak);
@@ -201,7 +203,7 @@
       <div class="sb-h">Display</div>
       <label class="chk"><input type="checkbox" id="time" checked /> Time</label>
       <label class="chk"><input type="checkbox" id="wrap" /> Wrap lines</label>
-      <label class="chk"><input type="checkbox" id="prettify" /> Prettify JSON</label>
+      <label class="chk"><input type="checkbox" id="prettify" checked /> Prettify JSON</label>
       <label class="chk"><input type="checkbox" id="dedup" /> Deduplicate</label>
       <button class="tbtn" id="sort">↓ Newest first</button>
       <button class="tbtn" id="download">⤓ Download</button>
@@ -239,7 +241,7 @@ const expanded = new Set()
 const lineFilters = []
 let portFilter = ''
 const MAX_DOM = 1500
-let live = true, wrap = false, prettify = false, dedup = false, showTime = true, sortDesc = true
+let live = true, wrap = false, prettify = true, dedup = false, showTime = true, sortDesc = true
 let pendingNew = 0, renderTimer = null, lastHist = 0, atEdgeAllowed = true
 
 const $ = (id) => document.getElementById(id)
@@ -291,7 +293,7 @@ function highlight (text) {
 }
 
 function renderActiveFilters () {
-  $('activef').innerHTML = lineFilters.map((f, i) => '<span class="fchip"><span class="op">' + glyph(f.op) + '</span> "' + esc(f.value) + '" <span class="x" data-i="' + i + '">✕</span></span>').join('')
+  $('activef').innerHTML = lineFilters.map((f, i) => '<span class="fchip"><span class="op">' + glyph(f.op) + '</span><span class="fval" title="' + esc(f.value) + '">"' + esc(f.value) + '"</span><span class="x" data-i="' + i + '">✕</span></span>').join('')
   Array.from($('activef').querySelectorAll('.x')).forEach((el) => { el.onclick = () => { lineFilters.splice(+el.dataset.i, 1); renderActiveFilters(); scheduleRender(true); renderHistogram() } })
 }
 
@@ -389,15 +391,6 @@ function renderLegend (filtered) {
 }
 
 logEl.addEventListener('scroll', () => { atEdgeAllowed = atEdge(); if (atEdgeAllowed) { pendingNew = 0; newBtn.style.display = 'none' } })
-logEl.addEventListener('click', (e) => {
-  if (window.getSelection().toString().trim()) return
-  const row = e.target.closest('.row'); if (!row) return
-  const id = Number(row.getAttribute('data-id'))
-  const ev = events.find((x) => x.id === id); if (!ev || !ev.fields) return
-  if (expanded.has(id)) expanded.delete(id); else expanded.add(id)
-  const keep = atEdgeAllowed; atEdgeAllowed = false; render(); atEdgeAllowed = keep
-})
-
 function addFilterValue (v, op) { if (!v) return; lineFilters.push({ op, value: v }); renderActiveFilters(); scheduleRender(true); renderHistogram() }
 const selmenu = $('selmenu')
 let selText = ''
@@ -433,6 +426,7 @@ function addEvent (ev, isLive) {
   events.push(ev)
   if (events.length > 9000) events.splice(0, events.length - 9000)
   if (!streamState[ev.stream]) streamState[ev.stream] = { color: appColor(ev.stream), port: null }
+  if (prettify && ev.fields) expanded.add(ev.id)
   if (!isLive) return
   renderHistogram()
   if (!live) { if (passes(ev)) { pendingNew++; showNew() } return }
