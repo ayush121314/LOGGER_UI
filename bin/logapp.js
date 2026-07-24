@@ -5,7 +5,7 @@ const http = require('http')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
-const { spawn } = require('child_process')
+const { spawn, exec, execSync } = require('child_process')
 
 const PORT = Number(process.env.LOGAPP_PORT || 9999)
 const HOST = '127.0.0.1'
@@ -98,10 +98,41 @@ function runDaemon () {
     if (!streams.has(name)) {
       const color = PALETTE[colorIdx % PALETTE.length]
       colorIdx++
-      streams.set(name, { name, color, status: 'running', count: 0, lastTs: Date.now() })
+      streams.set(name, { name, color, status: 'running', count: 0, lastTs: Date.now(), port: null })
       broadcast({ type: 'stream', stream: streams.get(name) })
     }
     return streams.get(name)
+  }
+
+  function detectPort (name, pgid, clientPid) {
+    if (!pgid) return
+    let tries = 0
+    const timer = setInterval(() => {
+      tries++
+      if (tries > 14) { clearInterval(timer); return }
+      const s = streams.get(name)
+      if (!s || s.port) { clearInterval(timer); return }
+      exec('ps -o pid= -g ' + pgid, (e, gout) => {
+        if (e) return
+        const gpids = new Set(gout.split(/\s+/).filter(Boolean))
+        exec('lsof -nP -iTCP -sTCP:LISTEN -Fpn 2>/dev/null', (e2, lout) => {
+          if (e2 || !lout) return
+          let cur = null, found = null
+          lout.split('\n').forEach((line) => {
+            if (line[0] === 'p') cur = line.slice(1)
+            else if (line[0] === 'n') {
+              const m = line.slice(1).match(/:(\d+)$/)
+              if (m && cur && gpids.has(cur) && cur !== String(clientPid) && m[1] !== String(PORT) && !found) found = m[1]
+            }
+          })
+          if (found) {
+            const st = streams.get(name)
+            if (st && !st.port) { st.port = found; broadcast({ type: 'stream', stream: st }) }
+            clearInterval(timer)
+          }
+        })
+      })
+    }, 1500)
   }
 
   function setStreamStatus (name, status) {
@@ -164,6 +195,7 @@ function runDaemon () {
     if (req.method === 'POST' && url.pathname === '/ingest') {
       const name = (url.searchParams.get('name') || 'stream').slice(0, 60)
       registerStream(name)
+      detectPort(name, url.searchParams.get('pgid'), url.searchParams.get('pid'))
       const splitter = new LineSplitter((line) => ingestEvent(parseLine(line, name)))
       req.setEncoding('utf8')
       req.on('data', (c) => splitter.push(c))
@@ -179,7 +211,7 @@ function runDaemon () {
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
       fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (err, data) => {
         if (err) { res.writeHead(500); res.end('index missing'); return }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' })
         res.end(data)
       })
       return
@@ -187,6 +219,11 @@ function runDaemon () {
 
     res.writeHead(404); res.end('not found')
   })
+
+  server.requestTimeout = 0
+  server.headersTimeout = 0
+  server.keepAliveTimeout = 0
+  server.timeout = 0
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') { process.exit(0) }
@@ -221,13 +258,17 @@ function spawnDaemon () {
 }
 
 async function ensureDaemon () {
-  if (await healthCheck()) return true
+  if (await healthCheck()) return { ok: true, spawned: false }
   spawnDaemon()
   for (let i = 0; i < 50; i++) {
     await new Promise((r) => setTimeout(r, 150))
-    if (await healthCheck()) return true
+    if (await healthCheck()) return { ok: true, spawned: true }
   }
-  return false
+  return { ok: false, spawned: false }
+}
+
+function getPgid (pid) {
+  try { return execSync('ps -o pgid= -p ' + pid, { encoding: 'utf8' }).trim() } catch (e) { return null }
 }
 
 function openBrowser (url) {
@@ -243,23 +284,31 @@ function streamNameFromArgs (args) {
   return path.basename(process.cwd()) || 'stream'
 }
 
+function ingestPath (name) {
+  const pgid = getPgid(process.pid)
+  return '/ingest?name=' + encodeURIComponent(name) + '&pid=' + process.pid + (pgid ? '&pgid=' + pgid : '')
+}
+
 function pipeToDaemon (name, source) {
-  const req = http.request({
-    host: HOST, port: PORT, path: '/ingest?name=' + encodeURIComponent(name),
-    method: 'POST', headers: { 'Content-Type': 'text/plain' }
-  }, (res) => { res.resume() })
-  let alive = true
-  req.on('error', () => {
-    if (alive) { alive = false; process.stderr.write('\n[logapp] stream dropped (daemon gone)\n') }
-  })
+  let req = null
+  let up = false
+  function open () {
+    req = http.request({
+      host: HOST, port: PORT, path: ingestPath(name),
+      method: 'POST', headers: { 'Content-Type': 'text/plain' }
+    }, (res) => { res.resume() })
+    req.on('error', () => { up = false; setTimeout(open, 1000) })
+    up = true
+  }
+  open()
   const splitter = new LineSplitter((line) => {
     process.stdout.write(line + '\n')
-    if (alive) { try { req.write(line + '\n') } catch (e) {} }
+    if (up && req) { try { req.write(line + '\n') } catch (e) {} }
   })
   source.setEncoding('utf8')
   source.on('data', (c) => splitter.push(c))
-  source.on('end', () => { splitter.end(); try { req.end() } catch (e) {} })
-  source.on('error', () => { try { req.end() } catch (e) {} })
+  source.on('end', () => { splitter.end(); try { if (req) req.end() } catch (e) {} })
+  source.on('error', () => { try { if (req) req.end() } catch (e) {} })
 }
 
 async function main () {
@@ -277,8 +326,8 @@ async function main () {
   }
 
   const url = 'http://localhost:' + PORT
-  const ok = await ensureDaemon()
-  if (!ok) { process.stderr.write('[logapp] could not start daemon on ' + url + '\n'); process.exit(1) }
+  const dstate = await ensureDaemon()
+  if (!dstate.ok) { process.stderr.write('[logapp] could not start daemon on ' + url + '\n'); process.exit(1) }
 
   const wrapperIdx = argv.indexOf('--')
   if (wrapperIdx !== -1) {
@@ -287,7 +336,7 @@ async function main () {
     const shell = process.env.SHELL || '/bin/sh'
     const child = spawn(shell, ['-c', cmdParts.join(' ')], { stdio: ['inherit', 'pipe', 'pipe'] })
     const req = http.request({
-      host: HOST, port: PORT, path: '/ingest?name=' + encodeURIComponent(name),
+      host: HOST, port: PORT, path: ingestPath(name),
       method: 'POST', headers: { 'Content-Type': 'text/plain' }
     }, (res) => { res.resume() })
     req.on('error', () => {})
@@ -298,12 +347,14 @@ async function main () {
     child.stdout.on('data', (c) => forward(c, false))
     child.stderr.on('data', (c) => forward(c, true))
     child.on('close', (code) => { try { req.end() } catch (e) {}; process.exit(code || 0) })
+    if (dstate.spawned) openBrowser(url)
     process.stderr.write('[logapp] streaming "' + name + '" -> ' + url + '\n')
     return
   }
 
   if (!process.stdin.isTTY) {
     const name = streamNameFromArgs(argv)
+    if (dstate.spawned) openBrowser(url)
     process.stderr.write('[logapp] streaming "' + name + '" -> ' + url + '\n')
     pipeToDaemon(name, process.stdin)
     return

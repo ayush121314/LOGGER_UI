@@ -62,28 +62,33 @@ alias -g -- --logapp='| logapp'
 Because it's a *global* alias, zsh rewrites `--logapp` anywhere on the line into
 `| logapp`, so appending `--logapp` to any command pipes it into the viewer.
 
+The UI is a **Grafana Explore–style** logs view.
+
 ## Features
 
 | Feature | What it does |
 | --- | --- |
-| Live tail | New lines stream in real time and auto-scroll |
-| Multi-service tabs | Each piped command is a colour-coded, filterable stream |
-| Search | Instant substring filter with match highlighting |
-| Level filters | Toggle `trace`/`debug`/`info`/`warn`/`error`/`fatal` chips |
-| JSON expand | Click any structured (pino) line to pretty-print its fields |
-| Pause / Resume | Freeze the view to read; a pill shows how many new lines arrived |
-| Wrap | Toggle line wrapping for long messages |
-| Clear | Empty the view (stream keeps running) |
+| Live tail | New lines stream in real time; `Live` toggle + a "N new" pill when scrolled away |
+| Logs volume histogram | Stacked bars per time bucket, coloured by level; legend toggles levels |
+| Level labels | Each line shows its level (`INFO`/`WARN`/`ERROR`…) in colour; error lines are red |
+| Port search | Type a port — logapp auto-detects each server's listening port and filters to it |
+| Line filters | Loki-style `Line contains` (`\|=`) / `does not contain` (`!=`) / regex (`\|~` `!~`) |
+| Select-to-filter | Select any text in a line **or** in the expanded JSON → popup to add a contains / does-not-contain filter |
+| Pretty JSON | Click a line (or `Prettify JSON`) for a syntax-highlighted, indented JSON view |
+| Wrap / Time / Dedup | Wrap long lines, hide timestamps, collapse consecutive duplicates (`×N`) |
+| Sort | `Newest first` / `Oldest first` |
 | Download | Save the current buffer as a `.log` file |
-| Error/warn tinting | Error rows are red, warnings amber |
 
 ## How it works
 
-- `logapp` runs a tiny local daemon (Node `http`) on port `9999`.
-- Piped stdout is streamed to the daemon over a single HTTP request.
-- The daemon parses each line (pino JSON or plain text), keeps a ring buffer of
-  the last few thousand lines, and pushes them to the browser over
-  **Server-Sent Events**.
+- `logapp` runs a tiny local daemon (Node `http`) on port `9999` — auto-started on
+  the first `--logapp`, and it opens the browser for you.
+- Piped stdout is streamed to the daemon over one long-lived HTTP request
+  (request timeouts disabled, with client auto-reconnect, so long-running servers
+  keep streaming for hours).
+- The daemon parses each line (pino JSON or plain text), auto-detects the source
+  server's listening port (`lsof` on the pipeline's process group), keeps a ring
+  buffer, and pushes everything to the browser over **Server-Sent Events**.
 - The UI (`public/index.html`) is a single dependency-free page.
 
 Change the port with `LOGAPP_PORT=4000 logapp`. Stop the daemon with
