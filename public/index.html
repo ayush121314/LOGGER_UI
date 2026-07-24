@@ -85,6 +85,9 @@
   .sidebar .sel, .sidebar .lin { width: 100%; }
   .sidebar .tbtn { justify-content: center; }
   .sidebar .chk { padding: 2px 0; }
+  .searchrow { display: flex; gap: 6px; }
+  .searchrow .lin { flex: 1; }
+  .searchrow .tbtn { flex: none; }
 
   /* volume */
   .volume { background: var(--panel); border-bottom: 1px solid var(--border); padding: 8px 12px 10px; flex: none; }
@@ -182,6 +185,14 @@
     <button class="tbtn live on" id="live"><span class="g"></span>Live tailing</button>
 
     <div class="sb-sec">
+      <div class="sb-h">Search</div>
+      <div class="searchrow">
+        <input id="quicksearch" class="lin mono" placeholder="search logs…" autocomplete="off" />
+        <button id="searchbtn" class="tbtn" title="Search">🔍</button>
+      </div>
+    </div>
+
+    <div class="sb-sec">
       <div class="sb-h">Label filters</div>
       <div class="pill"><span class="pk">port</span><span class="pop">=</span><input id="port" class="pval mono" placeholder="any" autocomplete="off" /></div>
     </div>
@@ -240,6 +251,7 @@ const events = []
 const expanded = new Set()
 const lineFilters = []
 let portFilter = ''
+let quickSearch = ''
 const MAX_DOM = 1500
 let live = true, wrap = false, prettify = true, dedup = false, showTime = true, sortDesc = true
 let pendingNew = 0, renderTimer = null, lastHist = 0, atEdgeAllowed = true
@@ -276,18 +288,22 @@ function lineMatch (ev) {
 function passes (ev) {
   if (!levelOn[ev.level]) return false
   if (portFilter) { const s = streamState[ev.stream]; if (!s || String(s.port) !== portFilter) return false }
+  if (quickSearch && !ev.raw.toLowerCase().includes(quickSearch)) return false
   return lineMatch(ev)
 }
 
 function matchNoLevel (ev) {
   if (portFilter) { const s = streamState[ev.stream]; if (!s || String(s.port) !== portFilter) return false }
+  if (quickSearch && !ev.raw.toLowerCase().includes(quickSearch)) return false
   return lineMatch(ev)
 }
 
 function highlight (text) {
   let safe = esc(text)
-  lineFilters.filter((f) => f.op === 'contains' && f.value).forEach((f) => {
-    try { safe = safe.replace(new RegExp('(' + f.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>') } catch (e) {}
+  const terms = lineFilters.filter((f) => f.op === 'contains' && f.value).map((f) => f.value)
+  if (quickSearch) terms.push(quickSearch)
+  terms.forEach((t) => {
+    try { safe = safe.replace(new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>') } catch (e) {}
   })
   return safe
 }
@@ -456,6 +472,10 @@ function addFilter () { const v = $('lval').value.trim(); if (!v) return; lineFi
 $('addf').onclick = addFilter
 $('lval').addEventListener('keydown', (e) => { if (e.key === 'Enter') addFilter() })
 $('port').addEventListener('input', () => { portFilter = $('port').value.replace(/\D/g, ''); scheduleRender(true); renderHistogram() })
+function applySearch () { quickSearch = $('quicksearch').value.trim().toLowerCase(); scheduleRender(true); renderHistogram() }
+$('searchbtn').onclick = applySearch
+let qtimer; $('quicksearch').addEventListener('input', () => { clearTimeout(qtimer); qtimer = setTimeout(applySearch, 140) })
+$('quicksearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') applySearch() })
 
 $('live').onclick = (e) => {
   live = !live; e.currentTarget.classList.toggle('on', live)
