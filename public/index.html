@@ -98,6 +98,15 @@
   .searchrow { display: flex; gap: 6px; }
   .searchrow .lin { flex: 1; }
   .searchrow .tbtn { flex: none; }
+  .applist { display: flex; flex-direction: column; gap: 1px; max-height: 220px; overflow-y: auto; }
+  .approw { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 3px; cursor: pointer; font-size: 12.5px; user-select: none; }
+  .approw:hover { background: var(--hover); }
+  .approw.sel { background: var(--blue-bg); border: 1px solid #24406e; }
+  .approw .adot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #5a5a5f; }
+  .approw.live .adot { background: var(--l-info); box-shadow: 0 0 6px var(--l-info); }
+  .approw .anm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .approw .apt { color: var(--blue2); font-size: 11px; }
+  .approw .past { color: var(--faint); font-size: 10px; }
 
   /* volume */
   .volume { background: var(--panel); border-bottom: 1px solid var(--border); padding: 8px 12px 10px; flex: none; }
@@ -232,8 +241,9 @@
     </div>
 
     <div class="sb-sec">
-      <div class="sb-h">Label filters</div>
-      <div class="pill"><span class="pk">port</span><span class="pop">=</span><input id="port" class="pval mono" placeholder="any" autocomplete="off" /></div>
+      <div class="sb-h">Apps</div>
+      <input id="appsearch" class="lin mono" placeholder="search app or port…" autocomplete="off" />
+      <div id="applist" class="applist"></div>
     </div>
 
     <div class="sb-sec">
@@ -291,7 +301,8 @@ let appColorIdx = 0
 const events = []
 const expanded = new Set()
 const lineFilters = []
-let portFilter = ''
+let appFilter = ''
+let appSearch = ''
 let quickSearch = ''
 let timeRangeMs = 0
 let timeFrom = null
@@ -352,13 +363,13 @@ function inRange (ev) {
 function passes (ev) {
   if (!levelOn[ev.level]) return false
   if (!inRange(ev)) return false
-  if (portFilter) { const s = streamState[ev.stream]; if (!s || String(s.port) !== portFilter) return false }
+  if (appFilter && ev.stream !== appFilter) return false
   return lineMatch(ev)
 }
 
 function matchNoLevel (ev) {
   if (!inRange(ev)) return false
-  if (portFilter) { const s = streamState[ev.stream]; if (!s || String(s.port) !== portFilter) return false }
+  if (appFilter && ev.stream !== appFilter) return false
   return lineMatch(ev)
 }
 
@@ -427,7 +438,7 @@ function render () {
   } else { disp.forEach((ev) => out.push([ev, 1])) }
   logEl.innerHTML = out.map(([ev, c]) => rowHtml(ev, c)).join('')
   if (!out.length) {
-    emptyEl.innerHTML = searchMode ? 'No matches in history.' : (portFilter ? 'No captured logs on port <b>' + esc(portFilter) + '</b>. Start that server with <code>&lt;cmd&gt; --logapp</code>.' : 'Waiting for logs…')
+    emptyEl.innerHTML = searchMode ? 'No matches in history.' : (appFilter ? 'No logs for <b>' + esc(appFilter) + '</b> in this range.' : 'Waiting for logs…')
     logEl.appendChild(emptyEl); emptyEl.style.display = 'block'
   }
   $('count').textContent = filtered.length + (searchMode ? ' matches' : '')
@@ -500,8 +511,8 @@ function maybeLoadOlder () {
   loadingOlder = true
   const params = new URLSearchParams({ before: String(events[0].ts), limit: '500' })
   if (timeFrom != null) params.set('from', String(timeFrom))
-  const pstream = portFilter && Object.keys(streamState).find((n) => String(streamState[n].port) === portFilter)
-  if (pstream) params.set('stream', pstream)
+  if (appFilter) params.set('stream', appFilter)
+  const on = LEVELS.filter((l) => levelOn[l]); if (on.length && on.length < LEVELS.length) params.set('levels', on.join(','))
   fetch('/query?' + params.toString()).then((r) => r.json()).then((d) => {
     loadingOlder = false
     if (!d.events || !d.events.length) { noMoreOlder = true; return }
@@ -563,8 +574,46 @@ function addEvent (ev, isLive) {
 }
 
 function applyStream (s) {
-  if (!streamState[s.name]) streamState[s.name] = { color: appColor(s.name), port: s.port || null }
-  else if (s.port) streamState[s.name].port = s.port
+  if (!streamState[s.name]) streamState[s.name] = { color: appColor(s.name), port: s.port || null, status: s.status || 'live' }
+  else { if ('port' in s) streamState[s.name].port = s.port; if (s.status) streamState[s.name].status = s.status }
+  renderAppList()
+}
+
+function renderAppList () {
+  const names = Object.keys(streamState).sort()
+  const q = appSearch.trim().toLowerCase()
+  const rows = ['<div class="approw' + (appFilter ? '' : ' sel') + '" data-app=""><span class="adot" style="background:transparent"></span><span class="anm">All apps</span></div>']
+  names.forEach((n) => {
+    const s = streamState[n]
+    const port = s.port ? String(s.port) : ''
+    if (q && n.toLowerCase().indexOf(q) === -1 && port.indexOf(q) === -1) return
+    rows.push('<div class="approw ' + (s.status === 'live' ? 'live' : '') + (appFilter === n ? ' sel' : '') + '" data-app="' + esc(n) + '">' +
+      '<span class="adot"></span><span class="anm">' + esc(n) + '</span>' + (port ? '<span class="apt">:' + esc(port) + '</span>' : '') + (s.status !== 'live' ? '<span class="past">past</span>' : '') + '</div>')
+  })
+  $('applist').innerHTML = rows.join('')
+  Array.from($('applist').querySelectorAll('.approw')).forEach((el) => { el.onclick = () => selectApp(el.getAttribute('data-app')) })
+}
+
+function selectApp (name) {
+  appFilter = name || ''
+  noMoreOlder = false
+  renderAppList()
+  if (appFilter) loadAppHistory(appFilter)
+  else { scheduleRender(true); renderHistogram() }
+}
+
+function loadAppHistory (name) {
+  const mine = events.filter((e) => e.stream === name)
+  const before = mine.length ? mine[0].ts : Date.now()
+  const params = new URLSearchParams({ stream: name, before: String(before), limit: '1500' })
+  const on = LEVELS.filter((l) => levelOn[l]); if (on.length && on.length < LEVELS.length) params.set('levels', on.join(','))
+  fetch('/query?' + params.toString()).then((r) => r.json()).then((d) => {
+    d.events.forEach((ev) => { if (!streamState[ev.stream]) streamState[ev.stream] = { color: ev.color, port: null, status: 'past' }; if (prettify && ev.fields) expanded.add(ev.id) })
+    events.unshift.apply(events, d.events)
+    renderCount = Math.min(MAX_RENDER, renderCount + d.events.length)
+    if (!d.hasMore) noMoreOlder = true
+    scheduleRender(true); renderHistogram()
+  }).catch(() => {})
 }
 
 function applyRates (rates) {
@@ -591,7 +640,16 @@ function connect () {
 function addFilter () { const v = $('lval').value.trim(); if (!v) return; lineFilters.push({ op: $('op').value, value: v }); $('lval').value = ''; renderActiveFilters(); scheduleRender(true); renderHistogram() }
 $('addf').onclick = addFilter
 $('lval').addEventListener('keydown', (e) => { if (e.key === 'Enter') addFilter() })
-$('port').addEventListener('input', () => { portFilter = $('port').value.replace(/\D/g, ''); scheduleRender(true); renderHistogram() })
+let apptimer
+$('appsearch').addEventListener('input', () => { appSearch = $('appsearch').value; clearTimeout(apptimer); apptimer = setTimeout(renderAppList, 100) })
+$('appsearch').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return
+  const q = appSearch.trim().toLowerCase(); if (!q) return
+  const byPort = Object.keys(streamState).find((n) => streamState[n].port && String(streamState[n].port) === q)
+  const byName = Object.keys(streamState).find((n) => n.toLowerCase() === q) || Object.keys(streamState).find((n) => n.toLowerCase().indexOf(q) !== -1)
+  const pick = byPort || byName
+  if (pick) selectApp(pick)
+})
 $('timerange').addEventListener('change', () => {
   const v = $('timerange').value
   if (v === 'custom') {
@@ -619,8 +677,7 @@ function runSearchAll () {
   const params = new URLSearchParams({ q: term, limit: '2000' })
   if (timeFrom != null) params.set('from', String(timeFrom))
   if (timeTo != null) params.set('to', String(timeTo))
-  const pstream = portFilter && Object.keys(streamState).find((n) => String(streamState[n].port) === portFilter)
-  if (pstream) params.set('stream', pstream)
+  if (appFilter) params.set('stream', appFilter)
   fetch('/query?' + params.toString()).then((r) => r.json()).then((d) => {
     searchResults.length = 0
     d.events.forEach((ev) => { if (!streamState[ev.stream]) streamState[ev.stream] = { color: ev.color, port: null }; if (prettify && ev.fields) expanded.add(ev.id); searchResults.push(ev) })

@@ -94,15 +94,28 @@ stays fully responsive (~0.4ms). How:
 | Wrap / Time / Dedup | Wrap long lines, hide timestamps, collapse consecutive duplicates (`×N`) |
 | Sort / Download | `Newest first` / `Oldest first`; save the buffer as a `.log` |
 
-## Storage
+## Storage — by repo, 7-day retention (segmented)
 
-Each live server's logs are also written to disk at
-`~/Downloads/logapp-logs/<stream>.jsonl` (override with `LOGAPP_LOGS_DIR`). The
-file exists only while the server runs — **when the server/port is killed, its
-file is auto-deleted**. Files are wiped on daemon start and capped
-(`LOGAPP_MAX_FILE_MB`, default 2048) so they never fill the disk. In-memory the
-daemon keeps a bounded ring (`LOGAPP_BUFFER`, default 20000) and only ships the
-last `LOGAPP_SNAPSHOT` (4000) lines to a new browser tab so Chrome stays light.
+Logs are persisted per **repo** (the stream name), not per port:
+
+- `~/Downloads/logapp-logs/<repo>/<YYYY-MM-DD>.jsonl` — one segment file per day
+  (`LOGAPP_LOGS_DIR` overrides the root).
+- **Append, never delete on kill.** Whatever port the repo runs on, its lines
+  append to the same repo folder. The repo's **current port** is auto-detected
+  and remembered in `.ports.json`, so a repo that usually runs on `3000` but was
+  started on `4050` today is found by either `4050` or its name.
+- **7-day retention** (`LOGAPP_RETAIN_DAYS`): old day-segments are simply
+  `unlink`ed — no giant-file rewrite, so it scales to huge logs without I/O
+  storms (the standard log-segmentation / retention-by-segment pattern used by
+  Loki, Elasticsearch ILM, logrotate).
+- **Apps panel** lists every repo — **live** (green dot, currently streaming) and
+  **past** (stopped, still on disk within 7 days). Search by **app name or port**;
+  selecting an app streams its history back from disk (`/query`, reverse-read),
+  and all filters (level, line, search, time) apply to the old logs too.
+
+In memory the daemon keeps a bounded ring (`LOGAPP_BUFFER`, default 20000) and
+ships only the last `LOGAPP_SNAPSHOT` (4000) lines to a new tab, so Chrome stays
+light even under a firehose; older history comes from disk on demand.
 
 ## How it works
 

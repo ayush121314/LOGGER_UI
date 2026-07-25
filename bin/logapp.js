@@ -108,6 +108,7 @@ function queryFile (file, opts, cb) {
         if (opts.to && ev.ts > opts.to) return 'skip'
         if (opts.before && ev.ts >= opts.before) return 'skip'
         if (opts.from && ev.ts < opts.from) return 'stop'
+        if (opts.levels && !opts.levels.has(ev.level)) return 'skip'
         if (q && ev.raw.toLowerCase().indexOf(q) === -1) return 'skip'
         out.push(ev); return 'add'
       }
@@ -167,41 +168,81 @@ async function runDaemon () {
   let qseq = 0
   let colorIdx = 0
 
-  if (PERSIST) {
-    try {
-      fs.mkdirSync(LOGS_DIR, { recursive: true })
-      for (const f of fs.readdirSync(LOGS_DIR)) { try { fs.unlinkSync(path.join(LOGS_DIR, f)) } catch (e) {} }
-    } catch (e) {}
-  }
+  const PORTS_FILE = path.join(LOGS_DIR, '.ports.json')
+  const RETAIN_MS = (Number(process.env.LOGAPP_RETAIN_DAYS) || 7) * 86400000
+  const ISTMS = 5.5 * 3600 * 1000
+  let portsMap = {}
+  let portsTimer = null
+  const savePorts = () => { if (portsTimer) return; portsTimer = setTimeout(() => { portsTimer = null; try { fs.writeFileSync(PORTS_FILE, JSON.stringify(portsMap)) } catch (e) {} }, 1000) }
   const safeName = (n) => n.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80)
-  const fileFor = (name) => path.join(LOGS_DIR, safeName(name) + '.jsonl')
-  const openFile = (name) => { if (PERSIST && !streamFiles.has(name)) { try { streamFiles.set(name, { ws: fs.createWriteStream(fileFor(name), { flags: 'w' }), bytes: 0 }) } catch (e) {} } }
+  const dayOf = (ts) => new Date(ts + ISTMS).toISOString().slice(0, 10)
+  const repoDir = (name) => path.join(LOGS_DIR, safeName(name))
+  const segPath = (name, day) => path.join(repoDir(name), day + '.jsonl')
+  const listRepos = () => { try { return fs.readdirSync(LOGS_DIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) } catch (e) { return [] } }
+  const listSegs = (name) => { try { return fs.readdirSync(repoDir(name)).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)).map((f) => f.slice(0, 10)).sort() } catch (e) { return [] } }
+  const openFile = (name) => {
+    if (!PERSIST) return
+    const day = dayOf(Date.now())
+    const cur = streamFiles.get(name)
+    if (cur && cur.day === day) return
+    if (cur) { try { cur.ws.end() } catch (e) {} }
+    try { fs.mkdirSync(repoDir(name), { recursive: true }) } catch (e) {}
+    try { streamFiles.set(name, { ws: fs.createWriteStream(segPath(name, day), { flags: 'a' }), day }) } catch (e) {}
+  }
   const writeToFile = (ev) => {
-    const f = streamFiles.get(ev.stream)
+    if (!PERSIST) return
+    const day = dayOf(ev.ts)
+    let f = streamFiles.get(ev.stream)
+    if (!f || f.day !== day) { openFile(ev.stream); f = streamFiles.get(ev.stream) }
     if (!f || f.ws.writableLength > 8 * 1024 * 1024) return
-    const line = ev.raw + '\n'
-    f.ws.write(line)
-    f.bytes += line.length
-    if (f.bytes > MAX_FILE_BYTES) {
-      try { f.ws.end() } catch (e) {}
-      try { fs.unlinkSync(fileFor(ev.stream)) } catch (e) {}
-      try { f.ws = fs.createWriteStream(fileFor(ev.stream), { flags: 'w' }); f.bytes = 0 } catch (e) {}
+    f.ws.write(ev.raw + '\n')
+  }
+  const closeFile = (name) => { const f = streamFiles.get(name); if (f) { try { f.ws.end() } catch (e) {} streamFiles.delete(name) } }
+  const pruneIdle = () => {
+    const cutoff = dayOf(Date.now() - RETAIN_MS)
+    for (const repo of listRepos()) {
+      for (const day of listSegs(repo)) { if (day < cutoff) { try { fs.unlinkSync(segPath(repo, day)) } catch (e) {} } }
     }
   }
-  const closeDeleteFile = (name) => {
-    const f = streamFiles.get(name)
-    if (f) { try { f.ws.end() } catch (e) {} streamFiles.delete(name) }
-    if (PERSIST) fs.unlink(fileFor(name), () => {})
+  function queryStreamSegs (name, opts, cb) {
+    let days = listSegs(name)
+    if (opts.from) { const d = dayOf(opts.from); days = days.filter((x) => x >= d) }
+    if (opts.to) { const d = dayOf(opts.to); days = days.filter((x) => x <= d) }
+    if (opts.before) { const d = dayOf(opts.before); days = days.filter((x) => x <= d) }
+    days.reverse()
+    const collected = []
+    let i = 0
+    const stepSeg = () => {
+      if (i >= days.length || collected.length >= opts.limit) { collected.sort((a, b) => a.ts - b.ts); return cb(collected.slice(-opts.limit)) }
+      queryFile(segPath(name, days[i++]), Object.assign({ streamName: name }, opts), (evs) => { for (const ev of evs) collected.push(ev); stepSeg() })
+    }
+    stepSeg()
+  }
+
+  if (PERSIST) {
+    try { fs.mkdirSync(LOGS_DIR, { recursive: true }) } catch (e) {}
+    try { portsMap = JSON.parse(fs.readFileSync(PORTS_FILE, 'utf8')) } catch (e) { portsMap = {} }
+    for (const repo of listRepos()) {
+      const segs = listSegs(repo)
+      if (!segs.length) continue
+      let mtime = Date.now()
+      try { mtime = fs.statSync(segPath(repo, segs[segs.length - 1])).mtimeMs } catch (e) {}
+      streams.set(repo, { name: repo, color: PALETTE[colorIdx++ % PALETTE.length], status: 'past', count: 0, lastTs: mtime, port: portsMap[repo] || null })
+    }
+    setTimeout(pruneIdle, 500)
+    setInterval(pruneIdle, 6 * 3600 * 1000)
   }
 
   function registerStream (name) {
-    if (!streams.has(name)) {
-      const color = PALETTE[colorIdx % PALETTE.length]
-      colorIdx++
-      streams.set(name, { name, color, status: 'running', count: 0, lastTs: Date.now(), port: null })
-      broadcast({ type: 'stream', stream: streams.get(name) })
+    const existing = streams.get(name)
+    if (existing) {
+      if (existing.status !== 'live') { existing.status = 'live'; broadcast({ type: 'stream', stream: existing }) }
+      return existing
     }
-    return streams.get(name)
+    const s = { name, color: PALETTE[colorIdx++ % PALETTE.length], status: 'live', count: 0, lastTs: Date.now(), port: portsMap[name] || null }
+    streams.set(name, s)
+    broadcast({ type: 'stream', stream: s })
+    return s
   }
 
   function detectPort (name, pgid, clientPid) {
@@ -242,7 +283,7 @@ async function runDaemon () {
           })
           if (found) {
             const st = streams.get(name)
-            if (st && !st.port) { st.port = found; broadcast({ type: 'stream', stream: st }) }
+            if (st) { st.port = found; portsMap[name] = found; savePorts(); broadcast({ type: 'stream', stream: st }) }
             clearInterval(timer)
           }
         })
@@ -312,13 +353,14 @@ async function runDaemon () {
     if (req.method === 'GET' && url.pathname === '/query') {
       const n = (k) => { const v = Number(url.searchParams.get(k)); return v || 0 }
       const streamParam = url.searchParams.get('stream')
-      const opts = { from: n('from'), to: n('to'), before: n('before'), q: url.searchParams.get('q') || '', limit: Math.min(5000, n('limit') || 1000) }
+      const lv = url.searchParams.get('levels')
+      const opts = { from: n('from'), to: n('to'), before: n('before'), q: url.searchParams.get('q') || '', levels: lv ? new Set(lv.split(',')) : null, limit: Math.min(5000, n('limit') || 1000) }
       const names = (streamParam && streamParam !== 'all') ? [streamParam] : Array.from(streams.keys())
       if (!names.length) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ events: [], hasMore: false })); return }
       let remaining = names.length
       const all = []
       names.forEach((name) => {
-        queryFile(fileFor(name), Object.assign({ streamName: name }, opts), (evs) => {
+        queryStreamSegs(name, opts, (evs) => {
           const s = streams.get(name)
           evs.forEach((ev) => { ev.stream = name; ev.color = s ? s.color : '#8ab8ff'; ev.id = -(++qseq) })
           for (const ev of evs) all.push(ev)
@@ -350,7 +392,8 @@ async function runDaemon () {
 
     if (req.method === 'POST' && url.pathname === '/ingest') {
       const name = (url.searchParams.get('name') || 'stream').slice(0, 60)
-      registerStream(name)
+      const s = registerStream(name)
+      if (s) s.port = null
       openFile(name)
       detectPort(name, url.searchParams.get('pgid'), url.searchParams.get('pid'))
       const splitter = new LineSplitter((line) => ingestEvent(parseLine(line, name)))
@@ -360,8 +403,8 @@ async function runDaemon () {
         splitter.end()
         res.writeHead(200); res.end('ok')
       })
-      req.on('close', () => { closeDeleteFile(name); setStreamStatus(name, 'ended') })
-      req.on('error', () => { setStreamStatus(name, 'ended') })
+      req.on('close', () => { closeFile(name); setStreamStatus(name, 'past') })
+      req.on('error', () => { setStreamStatus(name, 'past') })
       return
     }
 

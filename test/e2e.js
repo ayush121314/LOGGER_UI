@@ -55,8 +55,9 @@ function readSnapshot (port) {
   await sleep(600)
   const streams = JSON.parse((await get(PORT, '/streams')).body || '[]')
   check('stream registered', streams.some((s) => s.name === 't1'))
-  const file = path.join(TEST_LOGS, 't1.jsonl')
-  check('log file saved in LOGS_DIR', fs.existsSync(file) && fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).length >= 12)
+  const day = new Date(Date.now() + 5.5 * 3600000).toISOString().slice(0, 10)
+  const file = path.join(TEST_LOGS, 't1', day + '.jsonl')
+  check('log file saved in repo/<day>.jsonl segment', fs.existsSync(file) && fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).length >= 12)
 
   for (let i = 0; i < 200; i++) req.write(JSON.stringify({ level: 30, time: Date.now(), msg: 'bulk ' + i }) + '\n')
   await sleep(600)
@@ -73,7 +74,9 @@ function readSnapshot (port) {
 
   req.destroy()
   await sleep(1200)
-  check('log file deleted when port ends', !fs.existsSync(file))
+  check('log file PERSISTS after port ends (no delete)', fs.existsSync(file))
+  const st2 = JSON.parse((await get(PORT, '/streams')).body || '[]')
+  check('stream marked past after disconnect', st2.some((s) => s.name === 't1' && s.status === 'past'))
 
   try { process.kill(d1.pid) } catch (e) {}
   await sleep(600)
