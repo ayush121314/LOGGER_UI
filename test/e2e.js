@@ -63,6 +63,14 @@ function readSnapshot (port) {
   const snap = await readSnapshot(PORT)
   check('snapshot capped to SNAPSHOT_LIMIT (50)', snap && snap.events.length <= 50, snap ? snap.events.length + ' events' : 'no snapshot')
 
+  const qr = JSON.parse((await get(PORT, '/query?stream=t1&limit=5')).body || '{}')
+  check('/query returns recent lines', qr.events && qr.events.length === 5, (qr.events || []).length + ' events')
+  const qs = JSON.parse((await get(PORT, '/query?stream=t1&q=line&limit=50')).body || '{}')
+  check('/query full-text search (q=line)', qs.events && qs.events.length > 0 && qs.events.every((e) => e.raw.toLowerCase().includes('line')), (qs.events || []).length + ' matches')
+  const newest = qr.events[qr.events.length - 1].ts
+  const older = JSON.parse((await get(PORT, '/query?stream=t1&before=' + newest + '&limit=5')).body || '{}')
+  check('/query before-cursor (older only)', older.events && older.events.length > 0 && older.events.every((e) => e.ts < newest))
+
   req.destroy()
   await sleep(1200)
   check('log file deleted when port ends', !fs.existsSync(file))

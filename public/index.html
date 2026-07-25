@@ -107,8 +107,14 @@
   .chartwrap { display: flex; gap: 6px; }
   .yaxis { width: 36px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;
     color: var(--faint); font-size: 10px; height: 72px; }
-  .hist { flex: 1; height: 72px; display: flex; align-items: flex-end; gap: 1px;
+  .hist { flex: 1; height: 72px; display: flex; align-items: flex-end; gap: 1px; cursor: crosshair;
     border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .dragsel { position: fixed; background: rgba(110,159,255,.22); border: 1px solid var(--blue2); pointer-events: none; z-index: 15; display: none; }
+  #searchbanner { display: none; align-items: center; gap: 10px; padding: 6px 14px; flex: none;
+    background: #16233f; border-bottom: 1px solid #24406e; color: var(--text); font-size: 12.5px; }
+  #searchbanner .txt { flex: 1; } #searchbanner .txt b { color: var(--blue2); }
+  #searchbanner button { background: var(--panel2); border: 1px solid var(--border2); color: var(--text); border-radius: 3px; padding: 3px 9px; cursor: pointer; font-size: 12px; }
+  #searchbanner button:hover { background: var(--raised); }
   .col { flex: 1; display: flex; flex-direction: column-reverse; min-width: 2px; }
   .col:hover { background: rgba(255,255,255,.04); outline: 1px solid var(--border2); }
   .seg { width: 100%; }
@@ -262,10 +268,12 @@
       <div class="legend" id="legend"></div>
     </div>
     <div class="logshead"><div class="h">Logs <span id="count">0</span></div><div class="spacer"></div><span id="rate" class="rate"></span></div>
+    <div id="searchbanner"><span class="txt"></span><button id="searchexit">✕ Back to live</button></div>
     <div id="log"><div class="empty" id="empty">Waiting for logs… run a server with <code>… --logapp</code>.</div></div>
   </main>
 </div>
 <button id="newbtn">↓ new</button>
+<div class="dragsel" id="dragsel"></div>
 <div id="selmenu">
   <button data-op="contains"><b class="op">|=</b> contains</button>
   <button data-op="ncontains"><b class="op">!=</b> does not contain</button>
@@ -289,6 +297,14 @@ let timeRangeMs = 0
 let timeFrom = null
 let timeTo = null
 const MAX_DOM = 800
+const MAX_RENDER = 1500
+let renderCount = 800
+let loadingOlder = false
+let noMoreOlder = false
+let searchMode = false
+const searchResults = []
+let histStart = 0
+let histEnd = 0
 let live = true, wrap = false, prettify = true, dedup = false, showTime = true, sortDesc = true
 let pendingNew = 0, renderTimer = null, lastHist = 0, atEdgeAllowed = true
 
@@ -372,7 +388,7 @@ function renderActiveFilters () {
 }
 
 function atEdge () { return sortDesc ? logEl.scrollTop < 40 : logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40 }
-function toEdge () { logEl.scrollTop = sortDesc ? 0 : logEl.scrollHeight; pendingNew = 0; newBtn.style.display = 'none' }
+function toEdge () { renderCount = MAX_DOM; logEl.scrollTop = sortDesc ? 0 : logEl.scrollHeight; pendingNew = 0; newBtn.style.display = 'none' }
 function showNew () { newBtn.textContent = '↓ ' + pendingNew + ' new'; newBtn.style.display = 'block' }
 
 function rowHtml (ev, dupCount) {
@@ -396,8 +412,9 @@ function rowHtml (ev, dupCount) {
 
 function render () {
   renderTimer = null
-  const filtered = events.filter(passes)
-  const recent = filtered.slice(-MAX_DOM)
+  const source = searchMode ? searchResults : events
+  const filtered = source.filter(passes)
+  const recent = filtered.slice(-renderCount)
   const disp = sortDesc ? recent.slice().reverse() : recent
   const out = []
   if (dedup) {
@@ -410,15 +427,15 @@ function render () {
   } else { disp.forEach((ev) => out.push([ev, 1])) }
   logEl.innerHTML = out.map(([ev, c]) => rowHtml(ev, c)).join('')
   if (!out.length) {
-    emptyEl.innerHTML = portFilter ? 'No captured logs on port <b>' + esc(portFilter) + '</b>. Start that server with <code>&lt;cmd&gt; --logapp</code>.' : 'Waiting for logs…'
+    emptyEl.innerHTML = searchMode ? 'No matches in history.' : (portFilter ? 'No captured logs on port <b>' + esc(portFilter) + '</b>. Start that server with <code>&lt;cmd&gt; --logapp</code>.' : 'Waiting for logs…')
     logEl.appendChild(emptyEl); emptyEl.style.display = 'block'
   }
-  $('count').textContent = filtered.length
-  if (live && atEdgeAllowed) toEdge()
+  $('count').textContent = filtered.length + (searchMode ? ' matches' : '')
+  if (!searchMode && live && atEdgeAllowed) toEdge()
 }
 
 function scheduleRender (force) {
-  if (force) atEdgeAllowed = true
+  if (force) { atEdgeAllowed = true; noMoreOlder = false }
   if (renderTimer) return
   renderTimer = setTimeout(render, 200)
 }
@@ -434,6 +451,7 @@ function renderHistogram () {
   if (timeFrom != null || timeTo != null) { start = timeFrom != null ? timeFrom : filtered[0].ts; end = timeTo != null ? timeTo : now }
   else if (timeRangeMs) { end = now; start = now - timeRangeMs }
   else { end = now; start = now - Math.max(30000, Math.min(900000, now - filtered[0].ts)) }
+  histStart = start; histEnd = end
   const win = Math.max(1000, end - start)
   const bucketMs = win / N
   const buckets = Array.from({ length: N }, () => ({}))
@@ -467,7 +485,40 @@ function renderLegend (filtered) {
   Array.from($('legend').children).forEach((el) => { el.onclick = () => { const l = el.getAttribute('data-l'); levelOn[l] = !levelOn[l]; scheduleRender(true); renderHistogram() } })
 }
 
-logEl.addEventListener('scroll', () => { atEdgeAllowed = atEdge(); if (atEdgeAllowed) { pendingNew = 0; newBtn.style.display = 'none' } })
+function atOlderEdge () { return sortDesc ? (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 300) : (logEl.scrollTop < 300) }
+
+function maybeLoadOlder () {
+  if (loadingOlder || searchMode) return
+  const filteredLen = events.filter(passes).length
+  if (renderCount < filteredLen && renderCount < MAX_RENDER) {
+    renderCount = Math.min(MAX_RENDER, renderCount + 400)
+    const t = logEl.scrollTop, h = logEl.scrollHeight
+    render(); logEl.scrollTop = sortDesc ? t : t + (logEl.scrollHeight - h)
+    return
+  }
+  if (noMoreOlder || renderCount >= MAX_RENDER || !events.length) return
+  loadingOlder = true
+  const params = new URLSearchParams({ before: String(events[0].ts), limit: '500' })
+  if (timeFrom != null) params.set('from', String(timeFrom))
+  const pstream = portFilter && Object.keys(streamState).find((n) => String(streamState[n].port) === portFilter)
+  if (pstream) params.set('stream', pstream)
+  fetch('/query?' + params.toString()).then((r) => r.json()).then((d) => {
+    loadingOlder = false
+    if (!d.events || !d.events.length) { noMoreOlder = true; return }
+    const t = logEl.scrollTop, h = logEl.scrollHeight
+    d.events.forEach((ev) => { if (!streamState[ev.stream]) streamState[ev.stream] = { color: ev.color, port: null }; if (prettify && ev.fields) expanded.add(ev.id) })
+    events.unshift.apply(events, d.events)
+    renderCount = Math.min(MAX_RENDER, renderCount + d.events.length)
+    if (!d.hasMore) noMoreOlder = true
+    render(); logEl.scrollTop = sortDesc ? t : t + (logEl.scrollHeight - h)
+  }).catch(() => { loadingOlder = false })
+}
+
+logEl.addEventListener('scroll', () => {
+  atEdgeAllowed = atEdge()
+  if (atEdgeAllowed) { pendingNew = 0; newBtn.style.display = 'none' }
+  if (atOlderEdge()) maybeLoadOlder()
+})
 function addFilterValue (v, op) { if (!v) return; lineFilters.push({ op, value: v }); renderActiveFilters(); scheduleRender(true); renderHistogram() }
 const selmenu = $('selmenu')
 let selText = ''
@@ -560,9 +611,29 @@ $('tapply').onclick = () => {
   scheduleRender(true); renderHistogram()
 }
 function applySearch () { quickSearch = $('quicksearch').value.trim().toLowerCase(); scheduleRender(true); renderHistogram() }
-$('searchbtn').onclick = applySearch
+function exitSearch () { searchMode = false; searchResults.length = 0; $('searchbanner').style.display = 'none'; scheduleRender(true); renderHistogram() }
+function runSearchAll () {
+  const term = $('quicksearch').value.trim()
+  quickSearch = term.toLowerCase()
+  if (!term) { exitSearch(); return }
+  const params = new URLSearchParams({ q: term, limit: '2000' })
+  if (timeFrom != null) params.set('from', String(timeFrom))
+  if (timeTo != null) params.set('to', String(timeTo))
+  const pstream = portFilter && Object.keys(streamState).find((n) => String(streamState[n].port) === portFilter)
+  if (pstream) params.set('stream', pstream)
+  fetch('/query?' + params.toString()).then((r) => r.json()).then((d) => {
+    searchResults.length = 0
+    d.events.forEach((ev) => { if (!streamState[ev.stream]) streamState[ev.stream] = { color: ev.color, port: null }; if (prettify && ev.fields) expanded.add(ev.id); searchResults.push(ev) })
+    searchMode = true
+    $('searchbanner').style.display = 'flex'
+    $('searchbanner').querySelector('.txt').innerHTML = '<b>' + d.events.length + (d.hasMore ? '+' : '') + '</b> matches for &ldquo;' + esc(term) + '&rdquo; across full history'
+    scheduleRender(true)
+  }).catch(() => {})
+}
+$('searchbtn').onclick = runSearchAll
+$('searchexit').onclick = () => { $('quicksearch').value = ''; quickSearch = ''; exitSearch() }
 let qtimer; $('quicksearch').addEventListener('input', () => { clearTimeout(qtimer); qtimer = setTimeout(applySearch, 140) })
-$('quicksearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') applySearch() })
+$('quicksearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearchAll() })
 
 $('live').onclick = (e) => {
   live = !live; e.currentTarget.classList.toggle('on', live)
@@ -582,6 +653,33 @@ $('download').onclick = () => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = 'logapp.log'; a.click()
 }
 $('vcollapse').onclick = () => { const v = $('volume'); v.classList.toggle('collapsed'); $('vcollapse').textContent = v.classList.contains('collapsed') ? '▸' : '▾' }
+
+let dragStartX = null
+;(function initDragZoom () {
+  const hist = $('hist'); const sel = $('dragsel')
+  hist.addEventListener('mousedown', (e) => { dragStartX = e.clientX; sel.style.display = 'none'; e.preventDefault() })
+  window.addEventListener('mousemove', (e) => {
+    if (dragStartX == null) return
+    const rect = hist.getBoundingClientRect()
+    const a = Math.max(rect.left, Math.min(dragStartX, e.clientX)); const b = Math.min(rect.right, Math.max(dragStartX, e.clientX))
+    sel.style.display = 'block'; sel.style.left = a + 'px'; sel.style.top = rect.top + 'px'; sel.style.width = Math.max(0, b - a) + 'px'; sel.style.height = rect.height + 'px'
+  })
+  window.addEventListener('mouseup', (e) => {
+    if (dragStartX == null) return
+    const rect = hist.getBoundingClientRect()
+    const x1 = Math.min(Math.max(rect.left, dragStartX), rect.right) - rect.left
+    const x2 = Math.min(Math.max(rect.left, e.clientX), rect.right) - rect.left
+    dragStartX = null; sel.style.display = 'none'
+    const a = Math.min(x1, x2); const b = Math.max(x1, x2)
+    if (b - a < 6 || !histEnd) return
+    timeFrom = Math.round(histStart + (a / rect.width) * (histEnd - histStart))
+    timeTo = Math.round(histStart + (b / rect.width) * (histEnd - histStart))
+    timeRangeMs = 0
+    $('timerange').value = 'custom'; $('customrange').classList.add('show')
+    $('tfrom').value = epochToIstInput(timeFrom); $('tto').value = epochToIstInput(timeTo)
+    scheduleRender(true); renderHistogram()
+  })
+})()
 newBtn.onclick = () => { atEdgeAllowed = true; render(); toEdge() }
 
 connect()

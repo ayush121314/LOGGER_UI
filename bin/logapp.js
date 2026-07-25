@@ -91,6 +91,51 @@ class LineSplitter {
   end () { if (this.buf.length) { this.onLine(this.buf); this.buf = '' } }
 }
 
+function queryFile (file, opts, cb) {
+  fs.open(file, 'r', (err, fd) => {
+    if (err) return cb([])
+    fs.fstat(fd, (e2, st) => {
+      if (e2 || !st.size) { fs.close(fd, () => {}); return cb([]) }
+      let pos = st.size
+      let leftover = ''
+      const out = []
+      const CHUNK = 131072
+      const q = opts.q ? opts.q.toLowerCase() : null
+      const consider = (line) => {
+        if (!line) return 'skip'
+        const ev = parseLine(line, opts.streamName)
+        if (!ev) return 'skip'
+        if (opts.to && ev.ts > opts.to) return 'skip'
+        if (opts.before && ev.ts >= opts.before) return 'skip'
+        if (opts.from && ev.ts < opts.from) return 'stop'
+        if (q && ev.raw.toLowerCase().indexOf(q) === -1) return 'skip'
+        out.push(ev); return 'add'
+      }
+      const done = () => { fs.close(fd, () => {}); cb(out.reverse()) }
+      const step = () => {
+        if (out.length >= opts.limit) return done()
+        if (pos <= 0) { if (leftover && consider(leftover) === 'stop') {} return done() }
+        const readSize = Math.min(CHUNK, pos)
+        pos -= readSize
+        const buf = Buffer.allocUnsafe(readSize)
+        fs.read(fd, buf, 0, readSize, pos, (e3, bytes) => {
+          if (e3) return done()
+          const text = buf.toString('utf8', 0, bytes) + leftover
+          const lines = text.split('\n')
+          leftover = lines.shift()
+          for (let i = lines.length - 1; i >= 0; i--) {
+            if (out.length >= opts.limit) return done()
+            const r = consider(lines[i])
+            if (r === 'stop') return done()
+          }
+          step()
+        })
+      }
+      step()
+    })
+  })
+}
+
 function acquireLock () { try { fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: 'wx' }); return true } catch (e) { return false } }
 function releaseLock () { try { fs.unlinkSync(LOCK_FILE) } catch (e) {} }
 
@@ -119,6 +164,7 @@ async function runDaemon () {
   const clients = new Set()
   const streamFiles = new Map()
   let seq = 0
+  let qseq = 0
   let colorIdx = 0
 
   if (PERSIST) {
@@ -260,6 +306,30 @@ async function runDaemon () {
     if (req.method === 'GET' && url.pathname === '/streams') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(Array.from(streams.values())))
+      return
+    }
+
+    if (req.method === 'GET' && url.pathname === '/query') {
+      const n = (k) => { const v = Number(url.searchParams.get(k)); return v || 0 }
+      const streamParam = url.searchParams.get('stream')
+      const opts = { from: n('from'), to: n('to'), before: n('before'), q: url.searchParams.get('q') || '', limit: Math.min(5000, n('limit') || 1000) }
+      const names = (streamParam && streamParam !== 'all') ? [streamParam] : Array.from(streams.keys())
+      if (!names.length) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ events: [], hasMore: false })); return }
+      let remaining = names.length
+      const all = []
+      names.forEach((name) => {
+        queryFile(fileFor(name), Object.assign({ streamName: name }, opts), (evs) => {
+          const s = streams.get(name)
+          evs.forEach((ev) => { ev.stream = name; ev.color = s ? s.color : '#8ab8ff'; ev.id = -(++qseq) })
+          for (const ev of evs) all.push(ev)
+          if (--remaining === 0) {
+            all.sort((a, b) => a.ts - b.ts)
+            const hasMore = all.length >= opts.limit
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ events: all.slice(-opts.limit), hasMore }))
+          }
+        })
+      })
       return
     }
 

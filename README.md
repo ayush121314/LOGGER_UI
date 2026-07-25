@@ -87,8 +87,9 @@ stays fully responsive (~0.4ms). How:
 | Port search | Type a port — logapp auto-detects each server's listening port and filters to it |
 | Line filters | Loki-style `Line contains` (`\|=`) / `does not contain` (`!=`) / regex (`\|~` `!~`) |
 | Select-to-filter | Select any text in a line **or** in the expanded JSON → popup to add a contains / does-not-contain filter |
-| Search | Highlights matches (in the line **and** the pretty JSON) without hiding non-matches |
-| Time range | Grafana-style picker (Last 5m/15m/30m/1h/3h) filters by timestamp |
+| Search | Type to **highlight** matches (line + pretty JSON) live; press Enter / 🔍 to **search the full disk history** (finds matches even beyond the in-memory window) |
+| Infinite scroll | Scroll toward older logs and older lines are streamed in from disk on demand (`/query`), so you can browse the whole history without loading it all |
+| Time range | Grafana-style picker (Last 5m/10m/15m/30m/1h/3h) + custom From→To; **drag on the histogram** to zoom to a range. All in IST |
 | Pretty JSON | On by default — every line auto-expands to a syntax-highlighted, indented JSON view |
 | Wrap / Time / Dedup | Wrap long lines, hide timestamps, collapse consecutive duplicates (`×N`) |
 | Sort / Download | `Newest first` / `Oldest first`; save the buffer as a `.log` |
