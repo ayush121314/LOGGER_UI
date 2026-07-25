@@ -378,7 +378,7 @@ function showNew () { newBtn.textContent = '↓ ' + pendingNew + ' new'; newBtn.
 function rowHtml (ev, dupCount) {
   const hasFields = ev.fields && Object.keys(ev.fields).length > 0
   const s = streamState[ev.stream]
-  const showSrc = Object.keys(streamState).length > 1
+  const showSrc = true
   const t = showTime ? '<div class="t mono">' + fmtFull(ev.ts) + '</div>' : ''
   const lv = '<div class="lvl mono">' + ev.level.toUpperCase() + '</div>'
   let m = '<div class="m mono">'
