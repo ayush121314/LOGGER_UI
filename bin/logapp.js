@@ -18,6 +18,7 @@ const LOCK_FILE = path.join(STATE_DIR, 'daemon.lock')
 const DAEMON_LOG = path.join(STATE_DIR, 'daemon.log')
 const MAX_BUFFER = Number(process.env.LOGAPP_BUFFER) || 20000
 const SNAPSHOT_LIMIT = Number(process.env.LOGAPP_SNAPSHOT) || 4000
+const LIVE_BATCH = Number(process.env.LOGAPP_LIVE_BATCH) || 400
 const PERSIST = process.env.LOGAPP_PERSIST !== '0'
 const MAX_FILE_BYTES = (Number(process.env.LOGAPP_MAX_FILE_MB) || 2048) * 1024 * 1024
 
@@ -114,6 +115,7 @@ async function runDaemon () {
 
   const streams = new Map()
   const buffer = []
+  const pending = []
   const clients = new Set()
   const streamFiles = new Map()
   let seq = 0
@@ -131,7 +133,7 @@ async function runDaemon () {
   const writeToFile = (ev) => {
     const f = streamFiles.get(ev.stream)
     if (!f || f.ws.writableLength > 8 * 1024 * 1024) return
-    const line = JSON.stringify({ ts: ev.ts, level: ev.level, stream: ev.stream, msg: ev.msg, raw: ev.raw, fields: ev.fields }) + '\n'
+    const line = ev.raw + '\n'
     f.ws.write(line)
     f.bytes += line.length
     if (f.bytes > MAX_FILE_BYTES) {
@@ -221,14 +223,30 @@ async function runDaemon () {
     if (!ev) return
     const s = registerStream(ev.stream)
     s.count++
+    s.rateCount = (s.rateCount || 0) + 1
     s.lastTs = ev.ts
     ev.id = ++seq
     ev.color = s.color
     buffer.push(ev)
-    if (buffer.length > MAX_BUFFER) buffer.splice(0, buffer.length - MAX_BUFFER)
+    if (buffer.length > MAX_BUFFER * 1.3) buffer.splice(0, buffer.length - MAX_BUFFER)
     writeToFile(ev)
-    broadcast({ type: 'log', event: ev })
+    pending.push(ev)
+    if (pending.length > LIVE_BATCH * 4) pending.splice(0, pending.length - LIVE_BATCH * 2)
   }
+
+  setInterval(() => {
+    if (!pending.length || !clients.size) { pending.length = 0; return }
+    const batch = pending.length > LIVE_BATCH ? pending.slice(-LIVE_BATCH) : pending.slice()
+    const dropped = pending.length - batch.length
+    pending.length = 0
+    broadcast({ type: 'logs', events: batch, dropped })
+  }, 200)
+
+  setInterval(() => {
+    const rates = []
+    for (const s of streams.values()) { s.rate = s.rateCount || 0; s.rateCount = 0; rates.push({ name: s.name, rate: s.rate }) }
+    if (rates.length) broadcast({ type: 'rates', rates })
+  }, 1000)
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://' + HOST)

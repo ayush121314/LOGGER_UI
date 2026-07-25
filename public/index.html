@@ -124,6 +124,9 @@
     background: var(--panel); border-bottom: 1px solid var(--border); flex: none; }
   .logshead .h { font-weight: 500; font-size: 14px; }
   .logshead .h span { color: var(--weak); font-weight: 400; margin-left: 5px; font-size: 13px; }
+  .rate { color: var(--l-warn); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 12.5px;
+    background: rgba(234,184,57,.12); border: 1px solid rgba(234,184,57,.3); border-radius: 10px; padding: 2px 9px; }
+  .rate:empty { display: none; }
   .chk { display: inline-flex; align-items: center; gap: 6px; color: var(--weak); font-size: 12.5px; cursor: pointer; user-select: none; }
   .chk input { accent-color: var(--blue); width: 14px; height: 14px; cursor: pointer; }
 
@@ -257,7 +260,7 @@
       <div class="xaxis" id="xaxis"></div>
       <div class="legend" id="legend"></div>
     </div>
-    <div class="logshead"><div class="h">Logs <span id="count">0</span></div></div>
+    <div class="logshead"><div class="h">Logs <span id="count">0</span></div><div class="spacer"></div><span id="rate" class="rate"></span></div>
     <div id="log"><div class="empty" id="empty">Waiting for logs… run a server with <code>… --logapp</code>.</div></div>
   </main>
 </div>
@@ -284,7 +287,7 @@ let quickSearch = ''
 let timeRangeMs = 0
 let timeFrom = null
 let timeTo = null
-const MAX_DOM = 1500
+const MAX_DOM = 800
 let live = true, wrap = false, prettify = true, dedup = false, showTime = true, sortDesc = true
 let pendingNew = 0, renderTimer = null, lastHist = 0, atEdgeAllowed = true
 
@@ -416,7 +419,7 @@ function render () {
 function scheduleRender (force) {
   if (force) atEdgeAllowed = true
   if (renderTimer) return
-  renderTimer = setTimeout(render, 110)
+  renderTimer = setTimeout(render, 200)
 }
 
 function renderHistogram () {
@@ -512,6 +515,12 @@ function applyStream (s) {
   else if (s.port) streamState[s.name].port = s.port
 }
 
+function applyRates (rates) {
+  let total = 0
+  rates.forEach((r) => { if (streamState[r.name]) streamState[r.name].rate = r.rate; total += r.rate })
+  $('rate').textContent = total > 0 ? total.toLocaleString() + ' lines/s' : ''
+}
+
 let es
 function connect () {
   es = new EventSource('/events')
@@ -520,7 +529,9 @@ function connect () {
   es.onmessage = (m) => {
     const d = JSON.parse(m.data)
     if (d.type === 'snapshot') { (d.streams || []).forEach(applyStream); d.events.forEach((ev) => addEvent(ev, false)); renderHistogram(); scheduleRender(true) }
+    else if (d.type === 'logs') { for (const ev of d.events) addEvent(ev, true) }
     else if (d.type === 'log') addEvent(d.event, true)
+    else if (d.type === 'rates') applyRates(d.rates)
     else if (d.type === 'stream') applyStream(d.stream)
   }
 }

@@ -64,6 +64,19 @@ Because it's a *global* alias, zsh rewrites `--logapp` anywhere on the line into
 
 The UI is a **Grafana Explore–style** logs view.
 
+## Built for the firehose (10k+ lines/sec)
+
+Tested at **10,000 lines/sec**: the daemon stays ~12% of one core and Chrome
+stays fully responsive (~0.4ms). How:
+
+- **Raw append** to disk (no re-serialize), amortised in-memory ring.
+- **Rate-limited, batched SSE** — the browser gets one batch every 200ms
+  (≤ `LOGAPP_LIVE_BATCH`, default 400 lines), not one message per line, so it's
+  never flooded. A **`N lines/s` badge** shows the true incoming rate.
+- **Capped DOM** (≤ 800 rows) — the browser never renders more than a screenful
+  of history regardless of total volume.
+- Full history lives on disk; use search / filters / time-range to drill in.
+
 ## Features
 
 | Feature | What it does |
