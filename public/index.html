@@ -37,6 +37,15 @@
     border: 1px solid var(--border2); border-radius: 2px; padding: 5px 9px; font-size: 12.5px; }
   .ds .mk { width: 14px; height: 14px; border-radius: 3px; background: conic-gradient(from 215deg, #fbe02c, #f6621f, #fbe02c); }
   .ds .chev { color: var(--faint); }
+  .tr { background: var(--panel2); border: 1px solid var(--border2); color: var(--text); border-radius: 2px; padding: 5px 9px; font-size: 12.5px; outline: none; cursor: pointer; }
+  .tr:focus { border-color: var(--blue); }
+  .timebox { display: inline-flex; align-items: center; gap: 8px; }
+  .customrange { display: none; align-items: center; gap: 6px; }
+  .customrange.show { display: inline-flex; }
+  .customrange input[type=datetime-local] { background: var(--panel2); border: 1px solid var(--border2); color: var(--text); border-radius: 2px; padding: 4px 6px; font-size: 12px; color-scheme: dark; outline: none; }
+  .customrange input[type=datetime-local]:focus { border-color: var(--blue); }
+  .customrange .dash { color: var(--faint); }
+  .customrange .isttag { color: var(--weak); font-size: 10.5px; border: 1px solid var(--border2); border-radius: 3px; padding: 1px 5px; }
   .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--weak); font-size: 12px; }
   .conn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--l-error); box-shadow: 0 0 7px currentColor; }
   .conn.on .dot { background: var(--l-info); }
@@ -177,6 +186,25 @@
   <div class="logo"></div>
   <div class="crumbs"><span>Home</span><span class="sep">›</span><span class="cur">Explore</span></div>
   <div class="spacer"></div>
+  <div class="timebox">
+    <select id="timerange" class="tr" title="Time range (IST)">
+      <option value="0">🕘 All time</option>
+      <option value="300000">Last 5 min</option>
+      <option value="600000">Last 10 min</option>
+      <option value="900000">Last 15 min</option>
+      <option value="1800000">Last 30 min</option>
+      <option value="3600000">Last 1 hour</option>
+      <option value="10800000">Last 3 hours</option>
+      <option value="custom">Custom range…</option>
+    </select>
+    <span id="customrange" class="customrange">
+      <input type="datetime-local" id="tfrom" step="1" />
+      <span class="dash">→</span>
+      <input type="datetime-local" id="tto" step="1" />
+      <button id="tapply" class="tbtn primary">Apply</button>
+      <span class="isttag">IST</span>
+    </span>
+  </div>
   <div class="conn" id="conn"><span class="dot"></span><span id="connt">connecting…</span></div>
 </div>
 
@@ -253,6 +281,9 @@ const expanded = new Set()
 const lineFilters = []
 let portFilter = ''
 let quickSearch = ''
+let timeRangeMs = 0
+let timeFrom = null
+let timeTo = null
 const MAX_DOM = 1500
 let live = true, wrap = false, prettify = true, dedup = false, showTime = true, sortDesc = true
 let pendingNew = 0, renderTimer = null, lastHist = 0, atEdgeAllowed = true
@@ -270,9 +301,12 @@ function hljson (obj) {
 }
 function appColor (n) { if (!appColors[n]) { appColors[n] = APP_PALETTE[appColorIdx % APP_PALETTE.length]; appColorIdx++ } return appColors[n] }
 function lvlColor (l) { return LCOLOR[l] || LCOLOR.unknown }
+const IST = 5.5 * 3600 * 1000
 function pad (n, l = 2) { return String(n).padStart(l, '0') }
-function fmtFull (ts) { const d = new Date(ts); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + '.' + pad(d.getMilliseconds(), 3) }
-function fmtHMS (ts) { const d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) }
+function fmtFull (ts) { const d = new Date(ts + IST); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds()) + '.' + pad(d.getUTCMilliseconds(), 3) }
+function fmtHMS (ts) { const d = new Date(ts + IST); return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds()) }
+function epochToIstInput (ts) { const d = new Date(ts + IST); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + 'T' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds()) }
+function istInputToEpoch (v) { if (!v) return null; const s = v.length === 16 ? v + ':00' : v; const e = Date.parse(s + '+05:30'); return isNaN(e) ? null : e }
 function glyph (op) { return op === 'contains' ? '|=' : op === 'ncontains' ? '!=' : op === 'regex' ? '|~' : '!~' }
 
 function lineMatch (ev) {
@@ -286,16 +320,25 @@ function lineMatch (ev) {
   return true
 }
 
+function inRange (ev) {
+  if (timeFrom != null || timeTo != null) {
+    if (timeFrom != null && ev.ts < timeFrom) return false
+    if (timeTo != null && ev.ts > timeTo) return false
+    return true
+  }
+  return !timeRangeMs || (Date.now() - ev.ts) <= timeRangeMs
+}
+
 function passes (ev) {
   if (!levelOn[ev.level]) return false
+  if (!inRange(ev)) return false
   if (portFilter) { const s = streamState[ev.stream]; if (!s || String(s.port) !== portFilter) return false }
-  if (quickSearch && !ev.raw.toLowerCase().includes(quickSearch)) return false
   return lineMatch(ev)
 }
 
 function matchNoLevel (ev) {
+  if (!inRange(ev)) return false
   if (portFilter) { const s = streamState[ev.stream]; if (!s || String(s.port) !== portFilter) return false }
-  if (quickSearch && !ev.raw.toLowerCase().includes(quickSearch)) return false
   return lineMatch(ev)
 }
 
@@ -383,12 +426,15 @@ function renderHistogram () {
   const N = 60
   const filtered = events.filter(matchNoLevel)
   if (!filtered.length) { $('hist').innerHTML = ''; $('vrange').textContent = ''; $('legend').innerHTML = ''; return }
-  const win = Math.max(30000, Math.min(900000, now - filtered[0].ts))
-  const start = now - win
+  let start, end
+  if (timeFrom != null || timeTo != null) { start = timeFrom != null ? timeFrom : filtered[0].ts; end = timeTo != null ? timeTo : now }
+  else if (timeRangeMs) { end = now; start = now - timeRangeMs }
+  else { end = now; start = now - Math.max(30000, Math.min(900000, now - filtered[0].ts)) }
+  const win = Math.max(1000, end - start)
   const bucketMs = win / N
   const buckets = Array.from({ length: N }, () => ({}))
   filtered.forEach((ev) => {
-    if (ev.ts < start || !levelOn[ev.level]) return
+    if (ev.ts < start || ev.ts > end || !levelOn[ev.level]) return
     let idx = Math.floor((ev.ts - start) / bucketMs); if (idx < 0) idx = 0; if (idx >= N) idx = N - 1
     buckets[idx][ev.level] = (buckets[idx][ev.level] || 0) + 1
   })
@@ -403,7 +449,7 @@ function renderHistogram () {
     return '<div class="col" title="' + esc(tip) + '">' + segs + '</div>'
   }).join('')
   $('yaxis').innerHTML = '<span>' + max + '</span><span>0</span>'
-  $('xaxis').innerHTML = '<span>' + fmtHMS(start) + '</span><span>' + fmtHMS(start + win / 2) + '</span><span>' + fmtHMS(now) + '</span>'
+  $('xaxis').innerHTML = '<span>' + fmtHMS(start) + '</span><span>' + fmtHMS(start + win / 2) + '</span><span>' + fmtHMS(end) + '</span>'
   $('vrange').textContent = '· ' + filtered.length + ' lines · last ' + Math.round(win / 1000) + 's'
   renderLegend(filtered)
 }
@@ -483,6 +529,24 @@ function addFilter () { const v = $('lval').value.trim(); if (!v) return; lineFi
 $('addf').onclick = addFilter
 $('lval').addEventListener('keydown', (e) => { if (e.key === 'Enter') addFilter() })
 $('port').addEventListener('input', () => { portFilter = $('port').value.replace(/\D/g, ''); scheduleRender(true); renderHistogram() })
+$('timerange').addEventListener('change', () => {
+  const v = $('timerange').value
+  if (v === 'custom') {
+    $('customrange').classList.add('show')
+    if (!$('tfrom').value) $('tfrom').value = epochToIstInput(Date.now() - 900000)
+    if (!$('tto').value) $('tto').value = epochToIstInput(Date.now())
+    return
+  }
+  $('customrange').classList.remove('show')
+  timeFrom = null; timeTo = null; timeRangeMs = Number(v) || 0
+  scheduleRender(true); renderHistogram()
+})
+$('tapply').onclick = () => {
+  timeFrom = istInputToEpoch($('tfrom').value)
+  timeTo = istInputToEpoch($('tto').value)
+  timeRangeMs = 0
+  scheduleRender(true); renderHistogram()
+}
 function applySearch () { quickSearch = $('quicksearch').value.trim().toLowerCase(); scheduleRender(true); renderHistogram() }
 $('searchbtn').onclick = applySearch
 let qtimer; $('quicksearch').addEventListener('input', () => { clearTimeout(qtimer); qtimer = setTimeout(applySearch, 140) })
@@ -509,7 +573,7 @@ $('vcollapse').onclick = () => { const v = $('volume'); v.classList.toggle('coll
 newBtn.onclick = () => { atEdgeAllowed = true; render(); toEdge() }
 
 connect()
-setInterval(renderHistogram, 1000)
+setInterval(() => { renderHistogram(); if (timeRangeMs) scheduleRender() }, 1000)
 </script>
 </body>
 </html>

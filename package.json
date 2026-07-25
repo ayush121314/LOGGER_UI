@@ -6,7 +6,8 @@
     "logapp": "bin/logapp.js"
   },
   "scripts": {
-    "start": "node bin/logapp.js"
+    "start": "node bin/logapp.js",
+    "test": "node test/e2e.js"
   },
   "keywords": [
     "logs",
