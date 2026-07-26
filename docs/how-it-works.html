@@ -66,7 +66,19 @@
   .kbd{background:#22262e;border:1px solid var(--border2);border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-size:12px;font-family:monospace}
   .fn{color:#a9c7ff;font-family:monospace}
   footer{color:var(--faint);font-size:13px;margin-top:60px;border-top:1px solid var(--border);padding-top:16px}
+  .mermaid{background:#0e1116;border:1px solid var(--border);border-radius:10px;padding:20px 16px;margin:16px 0;overflow-x:auto;text-align:center}
+  .mermaid svg{max-width:100%;height:auto}
+  .diagram-fallback{margin-top:10px}
 </style>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: { background: '#0e1116', primaryColor: '#141821', primaryBorderColor: '#2a3140', actorBkg: '#161b24', actorBorder: '#3a4256', signalColor: '#c9d3e0', noteBkgColor: '#1b2330', noteBorderColor: '#2e6cff', fontFamily: 'ui-monospace, Menlo, monospace' },
+    sequence: { useMaxWidth: true, wrap: true, mirrorActors: false }
+  })
+</script>
 </head>
 <body>
 <nav class="toc">
@@ -76,6 +88,7 @@
   <a href="#tldr">30-second mental model</a>
   <div class="grp">Architecture</div>
   <a href="#arch">Big picture &amp; data flow</a>
+  <a href="#sequence">End-to-end sequence</a>
   <a href="#logapp-alias">The <code>--logapp</code> trick</a>
   <a href="#ports">Ports &amp; single daemon</a>
   <a href="#ingest">Ingest pipeline</a>
@@ -145,6 +158,54 @@ logapp/
                                                                                 │  search · time-range · Apps dropdown │
                                                                                 └──────────────────────────────────────┘</pre></div>
   <p>Three processes, one direction of flow. The daemon is the hub: it owns the port, the RAM ring, the disk files, and every browser connection. The CLI client is stateless (just a tee + forwarder). The browser is a pure view that pulls history on demand.</p>
+
+  <h2 id="sequence">End-to-end sequence</h2>
+  <p>The same story as a message-by-message sequence — from typing <code>--logapp</code> to a line appearing in the browser, plus history reads. Notice three distinct channels: the <b>stdin pipe</b> (app → client, carries the log data, needs no port), <code>/ingest</code> (client → daemon, one long-lived request), and <code>/events</code> + <code>/query</code> (daemon → browser, live push + history pull). The app's own port is never connected to — only <em>detected</em> for labels.</p>
+  <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant Z as zsh (terminal)
+    participant App as App process
+    participant C as logapp client
+    participant D as logapp daemon :9999
+    participant FS as Disk (~/.logapp, logs)
+    participant B as Browser UI
+
+    Note over Z: npm start --logapp
+    Z->>Z: global alias rewrites to (npm start | logapp)
+    Z->>App: start process
+    Z->>C: pipe App stdout to client stdin
+
+    Note over C,D: Daemon discovery (singleton)
+    C->>FS: read ~/.logapp/daemon.port
+    C->>D: GET /health
+    alt no healthy daemon
+        C->>FS: acquire daemon.lock (O_EXCL)
+        C->>D: bind :9999 (fallback to any free port)
+        C->>FS: write daemon.port
+        C->>B: open browser
+    end
+    C->>D: POST /ingest?name=repo  (long-lived)
+
+    loop per log line
+        App-->>C: stdout line
+        C-->>Z: tee to terminal (unchanged)
+        C->>D: stream line (ingest body)
+        D->>D: parse level/ts/id + ring buffer
+        D->>FS: append repo/YYYY-MM-DD.jsonl
+        D->>D: detect port via lsof + ps (once)
+    end
+
+    Note over D,B: live push, batched 1 flush / 200ms
+    D-->>B: SSE /events (batch)
+    B->>B: append ring, render, cap DOM
+
+    Note over B,FS: history: scroll-back / search-all
+    B->>D: GET /query (range / term / cursor)
+    D->>FS: reverse chunked read over segments
+    D-->>B: matching lines
+  </pre>
+  <p class="diagram-fallback" style="color:var(--faint);font-size:13px">If the diagram doesn't render (no network for the Mermaid CDN), the same flow is drawn as ASCII in <a href="#arch">Big picture &amp; data flow</a> above.</p>
 
   <h2 id="logapp-alias">The <code>--logapp</code> trick</h2>
   <p>How does appending <code>--logapp</code> to the <em>end</em> of a command turn it into a pipe? A <b>zsh global alias</b>. <code>install.sh</code> adds two lines to <code>~/.zshrc</code>:</p>
