@@ -181,7 +181,7 @@
     border: 1px solid var(--border2); border-radius: 9px; padding: 0 7px; font-size: 11px; }
   .row.notime { grid-template-columns: 3px auto 1fr; }
   .row.notime .t { display: none; }
-  .chead, .crow { display: grid; grid-template-columns: var(--cols); align-items: start; }
+  .chead, .crow { display: grid; grid-template-columns: var(--cols); align-items: baseline; }
   .chead { position: sticky; top: 0; z-index: 4; background: var(--panel); border-bottom: 1px solid var(--border2); }
   .chead span { padding: 7px 10px; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-right: 1px solid var(--border); }
   .crow { border-bottom: 1px solid #15171c; font-family: "Roboto Mono", Menlo, monospace; font-size: 12.5px; }
@@ -197,7 +197,9 @@
   .crow.error .clv { color: var(--l-error); } .crow.fatal .clv { color: var(--l-fatal); }
   .crow .cap { color: var(--blue2); }
   .crow .cfld { color: var(--text); } .crow .cnull { color: var(--faint); }
-  .crow .cmsg { color: var(--text); border-right: none; white-space: normal; overflow: visible; word-break: break-word; line-height: 1.45; }
+  .crow .cmsg { color: var(--text); border-right: none; }
+  #log.compactmode.wrap .crow { align-items: start; }
+  #log.compactmode.wrap .crow .cmsg { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; line-height: 1.45; }
   .crow mark { background: #b9840f; color: #fff; border-radius: 1px; }
   .crow .dup { background: var(--raised); color: var(--weak); border: 1px solid var(--border2); border-radius: 9px; padding: 0 6px; font-size: 11px; }
   .coldd { position: relative; }
