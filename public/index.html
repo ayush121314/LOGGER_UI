@@ -155,6 +155,7 @@
 
   /* logs */
   #log { flex: 1; overflow-y: auto; background: var(--canvas); position: relative; }
+  #log.compactmode { overflow-x: auto; }
   .row { display: grid; grid-template-columns: 3px auto auto 1fr; align-items: start; border-bottom: 1px solid #16181d; }
   .row .bar { align-self: stretch; background: var(--l-unknown); }
   .row.trace .bar { background: var(--l-trace); } .row.debug .bar { background: var(--l-debug); }
@@ -464,7 +465,7 @@ function compactCols (out) {
       freq[k] = (freq[k] || 0) + 1
     }
   })
-  return Object.keys(freq).sort((a, b) => freq[b] - freq[a] || a.localeCompare(b)).slice(0, 5)
+  return Object.keys(freq).sort((a, b) => freq[b] - freq[a] || a.localeCompare(b))
 }
 
 function compactTemplate (cols) {
