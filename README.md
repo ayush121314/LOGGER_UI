@@ -93,6 +93,7 @@ stays fully responsive (~0.4ms). How:
 | Infinite scroll | Scroll toward older logs and older lines are streamed in from disk on demand (`/query`), so you can browse the whole history without loading it all |
 | Time range | Grafana-style picker (Last 5m/10m/15m/30m/1h/3h) + custom From→To; **drag on the histogram** to zoom to a range. All in IST |
 | Pretty JSON | On by default — every line auto-expands to a syntax-highlighted, indented JSON view |
+| Pretty JSON ↔ Compact | Default expanded, syntax-highlighted JSON; a **Compact table** toggle switches to dense one-line rows (`time · level · app:port · msg · fields inline`) |
 | Wrap / Time / Dedup | Wrap long lines, hide timestamps, collapse consecutive duplicates (`×N`) |
 | Sort / Download | `Newest first` / `Oldest first`; save the buffer as a `.log` |
 

@@ -180,6 +180,23 @@
     border: 1px solid var(--border2); border-radius: 9px; padding: 0 7px; font-size: 11px; }
   .row.notime { grid-template-columns: 3px auto 1fr; }
   .row.notime .t { display: none; }
+  .crow { display: flex; align-items: baseline; gap: 12px; padding: 2px 14px; border-bottom: 1px solid #16181d;
+    white-space: nowrap; overflow: hidden; font-family: "Roboto Mono", Menlo, monospace; font-size: 12.5px; }
+  .crow:hover { background: var(--hover); }
+  .crow.error { background: rgba(226,77,66,.07); } .crow.error .cmsg { color: #ff6b60; }
+  .crow.warn .cmsg { color: #f2c65a; } .crow.fatal .cmsg { color: #cbb0ff; }
+  .crow .ct { color: var(--weak); width: 92px; flex: none; }
+  .crow.notime .ct { display: none; }
+  .crow .clv { width: 44px; flex: none; font-weight: 700; font-size: 10.5px; }
+  .crow.trace .clv { color: var(--l-trace); } .crow.debug .clv { color: var(--l-debug); }
+  .crow.info .clv { color: var(--l-info); } .crow.warn .clv { color: var(--l-warn); }
+  .crow.error .clv { color: var(--l-error); } .crow.fatal .clv { color: var(--l-fatal); }
+  .crow .cap { width: 150px; flex: none; color: var(--blue2); overflow: hidden; text-overflow: ellipsis; }
+  .crow .cmsg { flex: 0 1 auto; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+  .crow .cmsg mark { background: #b9840f; color: #fff; border-radius: 1px; }
+  .crow .cfields { flex: 1; min-width: 0; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
+  .crow .cfields b { color: #7aa2f7; font-weight: 400; }
+  .crow .dup { background: var(--raised); color: var(--weak); border: 1px solid var(--border2); border-radius: 9px; padding: 0 6px; font-size: 11px; }
   .details { grid-column: 1 / -1; background: #0c0d10; border-top: 1px solid var(--border); padding: 8px 12px 12px 25px; }
   .details .dh { color: var(--weak); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; margin: 4px 0 6px; }
   .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 18px; }
@@ -277,6 +294,7 @@
       <label class="chk"><input type="checkbox" id="wrap" /> Wrap lines</label>
       <label class="chk"><input type="checkbox" id="prettify" checked /> Prettify JSON</label>
       <label class="chk"><input type="checkbox" id="dedup" /> Deduplicate</label>
+      <label class="chk"><input type="checkbox" id="compact" /> Compact table</label>
       <button class="tbtn" id="sort">↓ Newest first</button>
       <button class="tbtn" id="download">⤓ Download</button>
     </div>
@@ -328,7 +346,7 @@ let searchMode = false
 const searchResults = []
 let histStart = 0
 let histEnd = 0
-let live = true, wrap = false, prettify = true, dedup = false, showTime = true, sortDesc = true
+let live = true, wrap = false, prettify = true, dedup = false, showTime = true, sortDesc = true, compact = false
 let pendingNew = 0, renderTimer = null, lastHist = 0, atEdgeAllowed = true
 
 const $ = (id) => document.getElementById(id)
@@ -433,6 +451,21 @@ function rowHtml (ev, dupCount) {
     '<div class="bar"></div>' + t + lv + m + det + '</div>'
 }
 
+function compactRow (ev, dupCount) {
+  const s = streamState[ev.stream]
+  const f = ev.fields || {}
+  const skip = { level: 1, time: 1, msg: 1, message: 1, service: 1, event: 1, stream: 1 }
+  const extra = Object.keys(f).filter((k) => !skip[k] && typeof f[k] !== 'object' && f[k] !== null)
+    .map((k) => '<b>' + esc(k) + '</b>=' + esc(String(f[k]))).join('  ')
+  return '<div class="crow ' + ev.level + (showTime ? '' : ' notime') + '">' +
+    '<span class="ct">' + fmtFull(ev.ts).slice(11) + '</span>' +
+    '<span class="clv">' + ev.level.toUpperCase() + '</span>' +
+    '<span class="cap">' + esc(ev.stream) + (s && s.ports && s.ports.length ? ':' + esc(s.ports.join(',')) : '') + '</span>' +
+    '<span class="cmsg">' + highlight(ev.msg || ev.raw) + (dupCount > 1 ? ' <span class="dup">×' + dupCount + '</span>' : '') + '</span>' +
+    (extra ? '<span class="cfields">' + markTerms(extra) + '</span>' : '') +
+    '</div>'
+}
+
 function render () {
   renderTimer = null
   const source = searchMode ? searchResults : events
@@ -448,7 +481,7 @@ function render () {
     })
     if (prev) out.push([prev, cnt])
   } else { disp.forEach((ev) => out.push([ev, 1])) }
-  logEl.innerHTML = out.map(([ev, c]) => rowHtml(ev, c)).join('')
+  logEl.innerHTML = out.map(([ev, c]) => compact ? compactRow(ev, c) : rowHtml(ev, c)).join('')
   if (!out.length) {
     emptyEl.innerHTML = searchMode ? 'No matches in history.' : (appFilter ? 'No logs for <b>' + esc(appFilter) + '</b> in this range.' : 'Waiting for logs…')
     logEl.appendChild(emptyEl); emptyEl.style.display = 'block'
@@ -716,6 +749,7 @@ $('live').onclick = (e) => {
 $('time').addEventListener('change', (e) => { showTime = e.target.checked; scheduleRender(true) })
 $('wrap').addEventListener('change', (e) => { wrap = e.target.checked; scheduleRender(true) })
 $('dedup').addEventListener('change', (e) => { dedup = e.target.checked; scheduleRender(true) })
+$('compact').addEventListener('change', (e) => { compact = e.target.checked; scheduleRender(true) })
 $('prettify').addEventListener('change', (e) => {
   prettify = e.target.checked
   if (prettify) { events.forEach((ev) => { if (ev.fields) expanded.add(ev.id) }) } else { expanded.clear() }
