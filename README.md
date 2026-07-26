@@ -96,6 +96,7 @@ stays fully responsive (~0.4ms). How:
 | Pretty JSON ↔ Compact | Default expanded, syntax-highlighted JSON; a **Compact table** toggle switches to a real columnar table — sticky header, `Time / Level / App / Message` up front, then **every** JSON field auto-promoted to its own aligned column (ordered by frequency, e.g. `requestId`, `durationMs`, `status`…), with horizontal scroll when there are many. Rows stay single-line and uniform; the full message shows on hover or with **Wrap lines** on. Zebra rows, level colours + search highlight carry over |
 | Column chooser | In compact mode a **Columns ▾** dropdown (default **All**) lists every detected field; tick/untick to show or hide any column, or toggle **All columns** at once. Label shows `N/total` when some are hidden. **Your show/hide choice is remembered** across refreshes (localStorage) |
 | Resizable columns | Drag any column's right edge in the header to resize it; the width **persists** across refreshes too |
+| Copy line / JSON | Hover any log row → **line** copies the raw line, **{ }** copies the pretty-printed JSON (both views). One-click to clipboard with a ✓ confirmation |
 | Wrap / Time / Dedup | Wrap long lines, hide timestamps, collapse consecutive duplicates (`×N`) |
 | Sort / Download | `Newest first` / `Oldest first`; save the buffer as a `.log` |
 

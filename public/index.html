@@ -205,6 +205,14 @@
   #log.compactmode.wrap .crow .cmsg { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; line-height: 1.45; }
   .crow mark { background: #b9840f; color: #fff; border-radius: 1px; }
   .crow .dup { background: var(--raised); color: var(--weak); border: 1px solid var(--border2); border-radius: 9px; padding: 0 6px; font-size: 11px; }
+  .row, .crow { position: relative; }
+  .cpygrp { position: absolute; right: 8px; top: 2px; display: none; gap: 4px; z-index: 5; }
+  .row:hover > .cpygrp, .crow:hover > .cpygrp { display: flex; }
+  .cpy { background: var(--raised); color: var(--weak); border: 1px solid var(--border2); border-radius: 3px;
+    padding: 1px 7px; font-size: 11px; font-family: "Roboto Mono", Menlo, monospace; cursor: pointer; line-height: 1.5;
+    box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .cpy:hover { border-color: var(--blue2); color: var(--text); }
+  .cpy.done { border-color: #3fb950; color: #3fb950; }
   .coldd { position: relative; }
   .coldd-trigger { display: inline-flex; align-items: center; gap: 6px; background: var(--raised); color: var(--text);
     border: 1px solid var(--border2); border-radius: 3px; padding: 4px 9px; font-size: 12px; cursor: pointer; }
@@ -485,7 +493,15 @@ function rowHtml (ev, dupCount) {
     det = '<div class="details"><pre class="json mono">' + markTerms(hljson(ev.fields)) + '</pre></div>'
   }
   return '<div class="row ' + ev.level + (wrap ? ' wrap' : '') + (showTime ? '' : ' notime') + '" data-id="' + ev.id + '">' +
-    '<div class="bar"></div>' + t + lv + m + det + '</div>'
+    '<div class="bar"></div>' + t + lv + m + det + copyBtns(ev) + '</div>'
+}
+
+function copyBtns (ev) {
+  const hasFields = ev.fields && Object.keys(ev.fields).length > 0
+  return '<span class="cpygrp">' +
+    '<button class="cpy" data-cpy="raw" title="Copy line">line</button>' +
+    (hasFields ? '<button class="cpy" data-cpy="json" title="Copy JSON">{ }</button>' : '') +
+    '</span>'
 }
 
 const COMPACT_SKIP = { level: 1, time: 1, msg: 1, message: 1, service: 1, event: 1, stream: 1, port: 1 }
@@ -534,7 +550,7 @@ function compactRow (ev, dupCount, cols) {
     const v = has ? String(f[k]) : ''
     return '<span class="cfld" title="' + esc(v) + '">' + (has ? highlight(v) : '<span class="cnull">·</span>') + '</span>'
   }).join('')
-  return '<div class="crow ' + ev.level + '">' + cells + '</div>'
+  return '<div class="crow ' + ev.level + '" data-id="' + ev.id + '">' + cells + copyBtns(ev) + '</div>'
 }
 
 function updateColLabel (allCols) {
@@ -889,6 +905,28 @@ window.addEventListener('mouseup', () => {
   colResize = null; saveColPrefs()
   const ch = document.querySelector('.chead'); if (ch) ch.classList.remove('resizing')
 })
+
+function copyText (t) {
+  if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(t).catch(() => fallbackCopy(t)) } else fallbackCopy(t)
+}
+function fallbackCopy (t) {
+  const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0'
+  document.body.appendChild(ta); ta.select()
+  try { document.execCommand('copy') } catch (e) {}
+  document.body.removeChild(ta)
+}
+logEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.cpy'); if (!btn) return
+  e.stopPropagation(); e.preventDefault()
+  const rowEl = btn.closest('[data-id]'); if (!rowEl) return
+  const id = Number(rowEl.getAttribute('data-id'))
+  const ev = (searchMode ? searchResults : events).find((x) => x.id === id)
+  if (!ev) return
+  const text = btn.getAttribute('data-cpy') === 'json' && ev.fields ? JSON.stringify(ev.fields, null, 2) : ev.raw
+  copyText(text)
+  const old = btn.textContent; btn.textContent = '✓'; btn.classList.add('done')
+  setTimeout(() => { btn.textContent = old; btn.classList.remove('done') }, 1000)
+}, true)
 $('prettify').addEventListener('change', (e) => {
   prettify = e.target.checked
   if (prettify) { events.forEach((ev) => { if (ev.fields) expanded.add(ev.id) }) } else { expanded.clear() }
