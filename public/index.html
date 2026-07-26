@@ -155,7 +155,7 @@
 
   /* logs */
   #log { flex: 1; overflow-y: auto; background: var(--canvas); position: relative; }
-  #log.compactmode { overflow-x: auto; }
+  #log.compactmode { overflow-x: auto; scrollbar-gutter: stable; }
   .row { display: grid; grid-template-columns: 3px auto auto 1fr; align-items: start; border-bottom: 1px solid #16181d; }
   .row .bar { align-self: stretch; background: var(--l-unknown); }
   .row.trace .bar { background: var(--l-trace); } .row.debug .bar { background: var(--l-debug); }
@@ -494,8 +494,8 @@ function compactCols (out) {
 }
 
 function compactTemplate (cols) {
-  return (showTime ? '96px ' : '') + '48px 150px minmax(340px,1.3fr)' +
-    (cols.length ? ' ' + cols.map(() => 'minmax(80px,150px)').join(' ') : '')
+  return (showTime ? '90px ' : '') + '44px 148px minmax(150px,1.4fr)' +
+    (cols.length ? ' ' + cols.map(() => 'minmax(62px,140px)').join(' ') : '')
 }
 
 function compactHead (cols) {
