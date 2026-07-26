@@ -214,6 +214,8 @@
   .cpy svg { display: block; }
   .cpy:hover { border-color: var(--blue2); color: var(--text); }
   .cpy.done { border-color: #3fb950; color: #3fb950; }
+  a.lnk { color: #6cb6ff; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  a.lnk:hover { color: #9ecbff; }
   #toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(8px); background: var(--raised);
     color: var(--text); border: 1px solid var(--border2); border-radius: 6px; padding: 8px 16px; font-size: 13px;
     box-shadow: 0 8px 24px rgba(0,0,0,.55); z-index: 200; opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; }
@@ -403,12 +405,25 @@ const $ = (id) => document.getElementById(id)
 const logEl = $('log'), emptyEl = $('empty'), connEl = $('conn'), newBtn = $('newbtn')
 
 function esc (s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) }
+const URL_RE = /https?:\/\/[^\s<>"']+/g
+function linkify (html) {
+  return html.replace(/(<[^>]+>)|([^<]+)/g, (m, tag, text) => {
+    if (tag) return tag
+    return text.replace(URL_RE, (u) => {
+      let url = u, tail = ''
+      const mt = url.match(/[),.;:!?]+$/)
+      if (mt) { tail = url.slice(url.length - mt[0].length); url = url.slice(0, url.length - mt[0].length) }
+      const href = url.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/"/g, '%22')
+      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer" class="lnk">' + url + '</a>' + tail
+    })
+  })
+}
 function hljson (obj) {
   let s = esc(JSON.stringify(obj, null, 2))
   s = s.replace(/("(?:\\.|[^"\\])*")(\s*:)?/g, (m, str, colon) => colon ? '<span class="jk">' + str + '</span>' + colon : '<span class="js">' + str + '</span>')
   s = s.replace(/(:\s*)(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)([,\n]|$)/g, '$1<span class="jn">$2</span>$3')
   s = s.replace(/(:\s*)(true|false|null)\b/g, '$1<span class="jb">$2</span>')
-  return s
+  return linkify(s)
 }
 function appColor (n) { if (!appColors[n]) { appColors[n] = APP_PALETTE[appColorIdx % APP_PALETTE.length]; appColorIdx++ } return appColors[n] }
 function lvlColor (l) { return LCOLOR[l] || LCOLOR.unknown }
@@ -459,11 +474,7 @@ function activeTerms () {
   return t
 }
 function highlight (text) {
-  let safe = esc(text)
-  activeTerms().forEach((t) => {
-    try { safe = safe.replace(new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>') } catch (e) {}
-  })
-  return safe
+  return markTerms(linkify(esc(text)))
 }
 function markTerms (html) {
   const terms = activeTerms()

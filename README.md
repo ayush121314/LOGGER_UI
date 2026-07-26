@@ -97,6 +97,7 @@ stays fully responsive (~0.4ms). How:
 | Column chooser | In compact mode a **Columns ▾** dropdown (default **All**) lists every detected field; tick/untick to show or hide any column, or toggle **All columns** at once. Label shows `N/total` when some are hidden. **Your show/hide choice is remembered** across refreshes (localStorage) |
 | Resizable columns | Drag any column's right edge in the header to resize it; the width **persists** across refreshes too |
 | Copy JSON | Hover any log row → a **copy icon** appears at the right (with a gradient fade so it never clashes with the text); one click copies the row's pretty-printed JSON (raw line for non-JSON logs) to the clipboard, with a "Copied ✓" toast. Works in both views |
+| Clickable URLs | Any `http(s)://…` in a message, JSON value, or table cell becomes a **link** — click to open it in a new browser tab (`target=_blank`, `rel=noopener`). URL-encoded `&` etc. are decoded in the target |
 | Wrap / Time / Dedup | Wrap long lines, hide timestamps, collapse consecutive duplicates (`×N`) |
 | Sort / Download | `Newest first` / `Oldest first`; save the buffer as a `.log` |
 
