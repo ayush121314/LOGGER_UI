@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>logapp — How it works</title>
+<style>
+  :root{
+    --bg:#0e1014;--panel:#161a21;--panel2:#1c2129;--border:#262c36;--border2:#333b47;
+    --text:#d7dde8;--weak:#95a0b0;--faint:#6a7381;--blue:#6e9fff;--acc:#f6821f;
+    --green:#7eb26d;--yellow:#eab839;--red:#e24d42;--purple:#b877d9;--cyan:#6ed0e0;
+    --code:#0b0d11;--mark:#243352;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;display:flex}
+  code,pre,.mono{font-family:"SF Mono","Roboto Mono",Menlo,Consolas,monospace}
+  a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+
+  /* sidebar TOC */
+  nav.toc{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;width:270px;flex:none;
+    background:var(--panel);border-right:1px solid var(--border);padding:22px 16px}
+  nav.toc .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;margin-bottom:4px}
+  nav.toc .logo{width:26px;height:26px;border-radius:7px;background:conic-gradient(from 215deg,#fbe02c,#f6621f,#fbe02c);position:relative}
+  nav.toc .logo::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--panel)}
+  nav.toc .sub{color:var(--faint);font-size:12px;margin-bottom:16px}
+  nav.toc a{display:block;color:var(--weak);padding:5px 9px;border-radius:6px;font-size:13.5px}
+  nav.toc a:hover{background:var(--panel2);text-decoration:none;color:var(--text)}
+  nav.toc a.h2{padding-left:20px;font-size:12.5px;color:var(--faint)}
+  nav.toc .grp{color:var(--faint);text-transform:uppercase;letter-spacing:.6px;font-size:10.5px;margin:16px 0 4px 9px}
+
+  main{flex:1;max-width:900px;margin:0 auto;padding:40px 46px 120px}
+  h1{font-size:32px;margin:0 0 6px}
+  .lead{color:var(--weak);font-size:17px;margin:0 0 10px}
+  h2{font-size:24px;margin:52px 0 12px;padding-top:14px;border-top:1px solid var(--border)}
+  h3{font-size:18px;margin:30px 0 8px;color:#e8edf4}
+  h4{font-size:15px;margin:20px 0 6px;color:var(--blue)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0;padding-left:22px}li{margin:5px 0}
+  strong{color:#fff}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--border2);border-radius:20px;padding:2px 11px;font-size:12px;color:var(--weak);margin:2px 4px 2px 0}
+  .tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600;font-family:monospace}
+  .tag.get{background:#12331f;color:#73d39a;border:1px solid #1f6b3f}
+  .tag.post{background:#33240f;color:#f0b45c;border:1px solid #6b4a1f}
+
+  pre{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow-x:auto;font-size:13px;line-height:1.55;margin:12px 0}
+  pre .c{color:var(--faint)}pre .k{color:var(--purple)}pre .s{color:var(--green)}pre .n{color:var(--cyan)}pre .f{color:var(--blue)}
+  code:not(pre code){background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:.9em;color:#a9c7ff}
+
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--faint);text-transform:uppercase;font-size:11px;letter-spacing:.5px}
+  td code{white-space:nowrap}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin:14px 0}
+  .note{border-left:3px solid var(--blue);background:#111725;padding:11px 15px;border-radius:0 8px 8px 0;margin:14px 0;color:#cfe0ff}
+  .warn{border-left:3px solid var(--yellow);background:#1c1809;padding:11px 15px;border-radius:0 8px 8px 0;margin:14px 0;color:#f3e2a6}
+  .ok{border-left:3px solid var(--green);background:#0f1c12;padding:11px 15px;border-radius:0 8px 8px 0;margin:14px 0;color:#bfe6bf}
+
+  .flow{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:20px;margin:16px 0;overflow-x:auto}
+  .flow pre{background:none;border:none;padding:0;margin:0;color:var(--weak);font-size:12.5px;line-height:1.5}
+  .flow b{color:var(--acc)} .flow .g{color:var(--green)} .flow .bl{color:var(--blue)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}nav.toc{display:none}main{padding:24px}}
+  .kbd{background:#22262e;border:1px solid var(--border2);border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-size:12px;font-family:monospace}
+  .fn{color:#a9c7ff;font-family:monospace}
+  footer{color:var(--faint);font-size:13px;margin-top:60px;border-top:1px solid var(--border);padding-top:16px}
+</style>
+</head>
+<body>
+<nav class="toc">
+  <div class="brand"><span class="logo"></span>logapp</div>
+  <div class="sub">How it works · internals</div>
+  <a href="#what">What it is</a>
+  <a href="#tldr">30-second mental model</a>
+  <div class="grp">Architecture</div>
+  <a href="#arch">Big picture &amp; data flow</a>
+  <a href="#logapp-alias">The <code>--logapp</code> trick</a>
+  <a href="#ports">Ports &amp; single daemon</a>
+  <a href="#ingest">Ingest pipeline</a>
+  <a href="#sse">SSE &amp; batching</a>
+  <div class="grp">Storage</div>
+  <a href="#persist">Per-repo segments</a>
+  <a href="#retention">7-day retention</a>
+  <a href="#multiport">Multi-port / concurrent</a>
+  <a href="#query">The <code>/query</code> engine</a>
+  <div class="grp">Frontend</div>
+  <a href="#ui">Grafana-style UI</a>
+  <a href="#features">Feature internals</a>
+  <a href="#firehose">Firehose (10k/s)</a>
+  <div class="grp">Reference</div>
+  <a href="#structure">Code structure</a>
+  <a href="#backend-fns">Backend functions</a>
+  <a href="#frontend-fns">Frontend functions</a>
+  <a href="#endpoints">HTTP endpoints</a>
+  <a href="#config">Config (env)</a>
+  <a href="#testing">Testing</a>
+</nav>
+
+<main>
+  <h1>logapp — How it works</h1>
+  <p class="lead">A zero-dependency, Grafana-Explore-style live log viewer for local servers. Pipe any process into it and watch, search, filter, and browse its logs in the browser — at up to 10,000 lines/second, without hanging.</p>
+  <div>
+    <span class="pill">Pure Node stdlib</span><span class="pill">SSE streaming</span><span class="pill">Per-repo disk history</span>
+    <span class="pill">7-day retention</span><span class="pill">10k lines/sec</span><span class="pill">Single dependency-free HTML UI</span>
+  </div>
+
+  <h2 id="what">What it is</h2>
+  <p><strong>logapp</strong> turns any program's stdout into a searchable, filterable, Grafana-like log dashboard in your browser — with <strong>no code changes</strong> to your app and <strong>no dependencies</strong> (only Node's standard library + the browser).</p>
+  <p>You run your server the way you always do, and append <code>--logapp</code> (or pipe <code>| logapp</code>). logapp captures the stdout, streams it live to a browser tab, writes it to disk per repo, and lets you search / filter / time-range / scroll back through the full history.</p>
+  <pre><span class="c"># the whole thing is two files + a tiny CLI</span>
+logapp/
+├─ bin/logapp.js      <span class="c">// ~600 lines — CLI + daemon (HTTP + SSE + storage)</span>
+├─ public/index.html  <span class="c">// ~760 lines — the entire single-page UI</span>
+├─ test/e2e.js        <span class="c">// dependency-free backend E2E (npm test)</span>
+└─ install.sh         <span class="c">// wires the zsh `--logapp` alias</span></pre>
+
+  <h2 id="tldr">30-second mental model</h2>
+  <div class="card">
+    <ol>
+      <li><b>CLI mode</b> — <code>&lt;cmd&gt; --logapp</code> becomes <code>&lt;cmd&gt; | logapp</code>. The <code>logapp</code> process reads stdin, echoes it back to your terminal, and forwards each line to a local <b>daemon</b> over one long-lived HTTP request.</li>
+      <li><b>Daemon</b> — a tiny Node HTTP server (prefers port <code>9999</code>). It parses each line, keeps a small in-RAM ring, writes the raw line to a per-repo file on disk, and pushes batched updates to browsers over <b>Server-Sent Events</b>.</li>
+      <li><b>Browser</b> — one dependency-free HTML page renders a Grafana-Explore-style view: histogram, live tail, filters, search, time range, and an Apps dropdown. Old logs beyond the live window are fetched from disk on demand via <code>/query</code>.</li>
+    </ol>
+  </div>
+
+  <h2 id="arch">Big picture &amp; data flow</h2>
+  <div class="flow"><pre>  your server (any language)          logapp CLI (pipe client)                 logapp daemon (one per machine)
+  ┌───────────────────────┐          ┌──────────────────────────┐             ┌──────────────────────────────────────┐
+  │ npm start / nodemon…  │  stdout  │ read stdin  ─┬─► terminal │  HTTP POST  │ /ingest  ── parseLine() ──► ring(RAM)  │
+  │ prints logs to stdout │ ───────► │  (tee)       └─► forward  │ ──────────► │            │                          │
+  └───────────────────────┘          └──────────────────────────┘  (1 long    │            ├─► <b>disk</b>  ~/Downloads/logapp-  │
+                                                                      request)  │            │    logs/&lt;repo&gt;/&lt;day&gt;.jsonl    │
+                                                                                │            └─► <span class="g">pending[]</span> (batched)         │
+                                                                                │                    │ every 200ms          │
+                                                                                │  <span class="bl">GET /events (SSE)</span>  ◄── broadcast() ──┘  │
+                                                                                │  <span class="bl">GET /query</span>  ── reverse-read segments   │
+                                                                                └──────────────────────────────────────┘
+                                                                                             ▲   │ snapshot + live batches
+                                                                                             │   ▼
+                                                                                ┌──────────────────────────────────────┐
+                                                                                │  Browser (public/index.html)         │
+                                                                                │  histogram · live tail · filters ·   │
+                                                                                │  search · time-range · Apps dropdown │
+                                                                                └──────────────────────────────────────┘</pre></div>
+  <p>Three processes, one direction of flow. The daemon is the hub: it owns the port, the RAM ring, the disk files, and every browser connection. The CLI client is stateless (just a tee + forwarder). The browser is a pure view that pulls history on demand.</p>
+
+  <h2 id="logapp-alias">The <code>--logapp</code> trick</h2>
+  <p>How does appending <code>--logapp</code> to the <em>end</em> of a command turn it into a pipe? A <b>zsh global alias</b>. <code>install.sh</code> adds two lines to <code>~/.zshrc</code>:</p>
+  <pre><span class="k">alias</span> logapp=<span class="s">'node "/…/logapp/bin/logapp.js"'</span>
+<span class="k">alias -g</span> -- --logapp=<span class="s">'| logapp'</span>   <span class="c"># global alias: expands anywhere on the line</span></pre>
+  <p>A normal alias only expands in command position; a <b>global</b> alias (<code>alias -g</code>) expands <em>anywhere</em>. So <code>npm start --logapp</code> is rewritten by zsh into <code>npm start | logapp</code> before execution.</p>
+  <div class="warn">Global aliases are loaded when a shell starts. A terminal opened <em>before</em> install won't have it — open a new terminal or <code>source ~/.zshrc</code>. In pipeline form <code>source env.sh &amp;&amp; npm start --logapp</code>, the pipe binds to <code>npm start</code> (correct), because <code>&amp;&amp;</code> separates pipelines.</p>
+
+  <h3><span class="fn">main()</span> — CLI modes</h3>
+  <table>
+    <tr><th>Invocation</th><th>Mode</th><th>What happens</th></tr>
+    <tr><td><code>&lt;cmd&gt; | logapp [name]</code></td><td>pipe</td><td>reads stdin, tees to terminal, forwards to daemon (<span class="fn">pipeToDaemon</span>)</td></tr>
+    <tr><td><code>logapp -- &lt;cmd&gt;</code></td><td>wrapper</td><td>spawns the command, captures stdout+stderr, forwards</td></tr>
+    <tr><td><code>logapp</code></td><td>UI</td><td>just ensures the daemon is up and opens the browser</td></tr>
+    <tr><td><code>logapp --daemon</code></td><td>daemon</td><td>internal — the background HTTP server (spawned automatically)</td></tr>
+    <tr><td><code>logapp --stop</code></td><td>stop</td><td>kills the daemon (reads <code>~/.logapp/daemon.pid</code>) and clears lock/port files</td></tr>
+  </table>
+  <p>The <b>repo name</b> is the stream key: an explicit arg (<code>| logapp myapp</code>) or, by default, the current folder's basename (<span class="fn">streamNameFromArgs</span>). Same folder ⇒ same name ⇒ same disk file.</p>
+
+  <h2 id="ports">Ports &amp; single daemon</h2>
+  <p>You only ever open <b>one</b> URL — <code>localhost:9999</code>. Internally logapp guarantees exactly one daemon and finds a free port if 9999 is taken.</p>
+  <h4>Discovery (<span class="fn">discoverDaemon</span>)</h4>
+  <ol>
+    <li>Is <code>9999</code> a healthy logapp daemon? (<span class="fn">healthCheck</span> verifies the body contains <code>"ok":true</code>, not just a 200 — so a foreign app on 9999 isn't mistaken for ours.) → use it.</li>
+    <li>Else read <code>~/.logapp/daemon.port</code> and health-check that. → use it.</li>
+    <li>Else <span class="fn">spawnDaemon</span> (detached), poll the port file until healthy, then open the browser.</li>
+  </ol>
+  <h4>Binding &amp; the single-daemon lock</h4>
+  <p>A new daemon takes an exclusive lock (<code>daemon.lock</code> via <code>O_EXCL</code>) before binding — this defeats the race where two <code>--logapp</code> commands start simultaneously and both try to spawn a daemon. Then <span class="fn">chooseAndListen</span> tries <code>9999 → 9998 → … → 9990 → 0</code> (OS-assigned free port); for each candidate it first checks whether a logapp daemon already answers there (reuse &amp; exit) before trying to bind. The chosen port is written to <code>daemon.port</code>; the client reads it and opens the right URL — and auto-opens the browser only when it freshly spawned the daemon.</p>
+  <div class="note"><b>State files</b> live in <code>~/.logapp/</code>: <code>daemon.pid</code>, <code>daemon.port</code>, <code>daemon.lock</code>, <code>daemon.log</code>. Log data lives separately in <code>~/Downloads/logapp-logs/</code>.</div>
+
+  <h2 id="ingest">Ingest pipeline</h2>
+  <p>Every incoming line runs through <span class="fn">parseLine</span> → <span class="fn">ingestEvent</span> on the daemon:</p>
+  <h4><span class="fn">parseLine(line)</span> — universal, not pino-only</h4>
+  <ul>
+    <li>If the line looks like JSON (<code>{…}</code>): parse it, take <code>level</code> (<span class="fn">normalizeLevel</span> maps pino numerics 10–60 and string levels), <code>time</code>, <code>msg</code>/<code>message</code>/<code>event</code>, and keep the whole object as <code>fields</code> (for the pretty-JSON view).</li>
+    <li>Otherwise (plain text — console.log, python, nginx, docker…): <span class="fn">guessLevel</span> infers <code>error/warn/debug/info</code> from keywords, <code>ts = now</code>, <code>msg =</code> the raw line, <code>fields = null</code>.</li>
+    <li>Returns <code>{stream, level, ts, msg, raw, fields}</code>. <code>raw</code> is the original line (what gets written to disk).</li>
+  </ul>
+  <h4><span class="fn">ingestEvent(ev)</span></h4>
+  <pre>s.count++; s.rateCount++;              <span class="c">// per-stream counters (rate = lines/sec)</span>
+buffer.push(ev)                        <span class="c">// in-RAM ring…</span>
+<span class="k">if</span> (buffer.length &gt; MAX_BUFFER*1.3)     <span class="c">// …trimmed in bulk (amortised O(1), no per-line splice)</span>
+  buffer.splice(0, buffer.length-MAX_BUFFER)
+writeToFile(ev)                        <span class="c">// append ev.raw to today's segment file</span>
+pending.push(ev)                       <span class="c">// queued for the next SSE batch</span></pre>
+
+  <h2 id="sse">SSE &amp; batching</h2>
+  <p>The browser subscribes to <code>GET /events</code> (Server-Sent Events). On connect it gets one <b>snapshot</b> (the last <code>LOGAPP_SNAPSHOT</code> = 4000 lines + all known streams), then live updates. To survive a firehose, live updates are <b>rate-limited and batched</b>:</p>
+  <pre><span class="c">// flush every 200ms — one array message, not one per line</span>
+<span class="k">setInterval</span>(() =&gt; {
+  <span class="k">const</span> batch = pending.<span class="f">slice</span>(-LIVE_BATCH)   <span class="c">// keep the most recent ≤400</span>
+  pending.length = 0
+  broadcast({ type: <span class="s">'logs'</span>, events: batch, dropped })
+}, 200)</pre>
+  <p>10,000 lines/sec ⇒ 5 messages/sec to the browser (not 10,000). A separate 1s timer broadcasts <code>{type:'rates'}</code> → the <b>N&nbsp;lines/s</b> badge.</p>
+  <table>
+    <tr><th>SSE message</th><th>Meaning</th></tr>
+    <tr><td><code>snapshot</code></td><td>on connect — <code>{streams, events}</code> (events capped to SNAPSHOT_LIMIT)</td></tr>
+    <tr><td><code>logs</code></td><td>a live batch of events (every 200ms)</td></tr>
+    <tr><td><code>stream</code></td><td>a stream appeared/changed (port detected, went live/past)</td></tr>
+    <tr><td><code>rates</code></td><td>per-stream lines/sec (every 1s)</td></tr>
+  </table>
+
+  <h2 id="persist">Per-repo segments</h2>
+  <p>Logs are persisted <b>per repo</b>, split into <b>daily segment files</b> — the standard log-segmentation pattern (as used by Loki, Elasticsearch ILM, logrotate):</p>
+  <pre>~/Downloads/logapp-logs/
+├─ .ports.json                 <span class="c">// { "&lt;repo&gt;": ["3000","3001"], … }  repo → ports seen</span>
+├─ ecommerce-backend/
+│  ├─ 2026-07-25.jsonl         <span class="c">// one file per day (IST date), append-only, raw lines</span>
+│  └─ 2026-07-26.jsonl
+└─ ecom-cron-worker/
+   └─ 2026-07-26.jsonl</pre>
+  <ul>
+    <li><b>Append, never truncate</b> (<code>flags:'a'</code>). Re-running the repo appends to the same folder — regardless of port.</li>
+    <li><b>Not deleted on kill, not wiped on start.</b> The file's lifetime is the retention window, not the process.</li>
+    <li><b>Raw lines</b> are written verbatim (no re-serialisation) → cheap, greppable, and re-parseable.</li>
+    <li>A backpressure guard skips the disk write if the OS buffer is &gt; 8&nbsp;MB behind, so a slow disk never blows up RAM.</li>
+  </ul>
+
+  <h2 id="retention">7-day retention</h2>
+  <p>Old data is dropped by <b>deleting whole day-segments</b> — an <code>unlink</code>, not a rewrite. <span class="fn">pruneIdle</span> runs on start and every 6 hours:</p>
+  <pre><span class="k">const</span> cutoff = dayOf(Date.now() - RETAIN_MS)   <span class="c">// e.g. "2026-07-19"</span>
+<span class="k">for</span> (repo of listRepos())
+  <span class="k">for</span> (day of listSegs(repo))
+    <span class="k">if</span> (day &lt; cutoff) fs.unlinkSync(segPath(repo, day))   <span class="c">// O(1) per old day</span></pre>
+  <div class="ok"><b>Why this scales:</b> a naïve "keep last 7 days" over a single growing file means rewriting the whole (possibly multi-GB) file every few hours — huge I/O, laptop heat. Deleting a whole day-file is O(1) and touches nothing else. Retention is configurable via <code>LOGAPP_RETAIN_DAYS</code>.</div>
+
+  <h2 id="multiport">Multi-port &amp; concurrent writes</h2>
+  <p>The same repo can run on several ports at once (e.g. <code>3000</code> and <code>3001</code>). logapp treats them as <b>one app</b>:</p>
+  <ul>
+    <li>Both pipe clients open a <code>/ingest</code> connection with the same name → both append to the <b>same</b> repo file. Node serialises each <code>ws.write(line)</code>, so lines interleave but are never corrupted (verified: 0 corrupt lines under concurrent load).</li>
+    <li>The stream tracks a <code>ports[]</code> array (every active port) and a <code>conns</code> ref-count. Each connection detects its own listening port (<span class="fn">detectPort</span>, see below) and adds it.</li>
+    <li>When one instance stops, its port is removed and <code>conns--</code>; the app stays <b>live</b>. Only when the last connection closes does it become <b>past</b> (file preserved).</li>
+  </ul>
+  <h4><span class="fn">detectPort</span> — finding the current port</h4>
+  <p>The pipe client can't easily tell the daemon which port its sibling server bound. So the daemon discovers it: it walks the <b>full process tree</b> of the pipeline (<code>ps -ax -o pid=,ppid=,pgid=</code>), starting from the pipeline's process-group and following children, then intersects those PIDs with the machine's LISTEN sockets (<code>lsof</code>). Walking the whole tree (not just the process group) is what makes it work under <b>nodemon / pm2 / ts-node-dev</b>, which spawn the real server in a child process group. The detected port is remembered in <code>.ports.json</code>, so an app that usually runs on 3000 but was started on 4050 today is found by <b>4050</b> — or by its name.</p>
+
+  <h2 id="query">The <code>/query</code> engine</h2>
+  <p>Everything historical — infinite scroll, full-history search, selecting a past app, time-range zoom — is served by one endpoint that reads <b>only what it needs</b> from disk.</p>
+  <h4><span class="fn">queryFile</span> — reverse chunked read</h4>
+  <p>To get the newest N matching lines from a possibly-huge file, logapp reads the file <b>backwards</b> in 128&nbsp;KB chunks from EOF, splitting lines and testing each against <code>from</code>/<code>to</code>/<code>before</code>/<code>q</code>/<code>levels</code>. It stops as soon as it has <code>limit</code> matches or crosses the <code>from</code> boundary — it never reads the whole file for a tail query.</p>
+  <h4><span class="fn">queryStreamSegs</span> — only relevant days</h4>
+  <p>Given a time range, it lists the repo's day-segments, keeps only the dates that overlap <code>[from,to]</code> (and <code>≤ before</code>), and reverse-reads them newest-first until the limit is hit. So a "last 15 minutes" query touches one file; a search only scans the days in range.</p>
+  <pre><span class="tag get">GET</span> /query?stream=&lt;repo|all&gt;&amp;from=&lt;ms&gt;&amp;to=&lt;ms&gt;&amp;before=&lt;ms&gt;&amp;q=&lt;text&gt;&amp;levels=info,warn&amp;limit=1000
+   → { events: [ …ascending by ts… ], hasMore: bool }</pre>
+
+  <h2 id="ui">Grafana-style UI</h2>
+  <p>The entire frontend is one dependency-free <code>public/index.html</code> (HTML + CSS + vanilla JS). It mimics Grafana Explore:</p>
+  <div class="grid">
+    <div class="card"><h4>Left sidebar</h4><ul>
+      <li><b>Live tailing</b> toggle (pauses the view; disk writes never stop)</li>
+      <li><b>Search</b> — highlight as you type; Enter = full-history search</li>
+      <li><b>Apps</b> dropdown — live/past, search by name or port</li>
+      <li><b>Line filters</b> — Loki-style <code>|=</code> / <code>!=</code> / regex</li>
+      <li><b>Display</b> — Time, Wrap, Prettify JSON, Dedup, sort, Download</li>
+    </ul></div>
+    <div class="card"><h4>Main panel</h4><ul>
+      <li><b>Logs volume</b> histogram — stacked by level; drag to zoom a time range</li>
+      <li>clickable legend toggles levels</li>
+      <li><b>N lines/s</b> firehose badge</li>
+      <li>log rows: <code>time · LEVEL · repo:ports · message</code>, colour-coded, error rows red, JSON pretty-expanded</li>
+    </ul></div>
+  </div>
+  <p>Top-right is the <b>time-range picker</b> (presets + custom From→To), everything shown in <b>IST</b> (<code>ts + 5.5h</code>, formatted via UTC getters).</p>
+
+  <h2 id="features">Feature internals</h2>
+  <table>
+    <tr><th>Feature</th><th>How it works (functions)</th></tr>
+    <tr><td>Render loop</td><td><span class="fn">addEvent</span> pushes to <code>events[]</code>; <span class="fn">scheduleRender</span> debounces (200ms) → <span class="fn">render</span> rebuilds the visible window (<code>filtered.slice(-renderCount)</code>) via <span class="fn">rowHtml</span>.</td></tr>
+    <tr><td>Live tail / pause</td><td>the <b>Live</b> button freezes rendering (a "N new" pill counts buffered lines); <span class="fn">atEdge</span>/<span class="fn">toEdge</span> keep you pinned to newest.</td></tr>
+    <tr><td>Filtering</td><td><span class="fn">passes</span>(ev) = level (<code>levelOn</code>) + time (<span class="fn">inRange</span>) + app (<code>appFilter</code>) + line filters (<span class="fn">lineMatch</span>).</td></tr>
+    <tr><td>Search</td><td>typing → <span class="fn">applySearch</span> highlights (<span class="fn">highlight</span> + tag-safe <span class="fn">markTerms</span> for JSON), no filtering. Enter/🔍 → <span class="fn">runSearchAll</span> queries the whole disk and shows matches with a banner.</td></tr>
+    <tr><td>Infinite scroll</td><td><span class="fn">atOlderEdge</span> triggers <span class="fn">maybeLoadOlder</span> — grows the render window, then fetches older lines from <code>/query?before=…</code> and preserves scroll position.</td></tr>
+    <tr><td>Apps</td><td><span class="fn">renderAppList</span> builds the dropdown from <code>streamState</code>; <span class="fn">selectApp</span> sets <code>appFilter</code> and <span class="fn">loadAppHistory</span> streams that repo's disk history (filters applied server-side via <code>levels</code>/<code>q</code> and client-side via <span class="fn">passes</span>).</td></tr>
+    <tr><td>Histogram</td><td><span class="fn">renderHistogram</span> buckets <code>matchNoLevel</code>-passing events into 60 columns over the active range; drag on <code>#hist</code> maps x→time → sets a custom range.</td></tr>
+    <tr><td>Pretty JSON</td><td>on by default; <span class="fn">hljson</span> syntax-highlights the object; clicking a row does <em>not</em> collapse it.</td></tr>
+    <tr><td>Dedup</td><td>collapses consecutive identical <code>(stream,level,msg)</code> rows into one with a <code>×N</code> badge.</td></tr>
+  </table>
+
+  <h2 id="firehose">Firehose (10k lines/sec)</h2>
+  <p>Verified at <b>10,000 lines/sec</b>: the daemon sits at ~12% of one core and Chrome stays fully responsive. The tricks, layer by layer:</p>
+  <table>
+    <tr><th>Layer</th><th>Optimisation</th></tr>
+    <tr><td>Daemon RAM</td><td>only a bounded ring (<code>LOGAPP_BUFFER</code>=20000); everything else is on disk. Ring trimmed in bulk, not per line.</td></tr>
+    <tr><td>Daemon CPU</td><td>raw append (no re-serialise); no polling loops; detection runs a few times then stops; write backpressure guard.</td></tr>
+    <tr><td>SSE</td><td>batched every 200ms + rate-limited to <code>LIVE_BATCH</code>=400/flush → 10k/s becomes ~5 msgs/s.</td></tr>
+    <tr><td>Browser</td><td>capped DOM (≤800 rows live, ≤1500 while scrolling history); render debounced 200ms.</td></tr>
+    <tr><td>History</td><td>never loaded wholesale — reverse-read from disk in bounded pages via <code>/query</code>.</td></tr>
+  </table>
+  <div class="note">The mindset shift at this scale: you don't <em>watch</em> a 10k/s stream (no human can) — the live view is a sampled heartbeat, and the real work is <b>search / filter / time-range</b> over the disk history.</div>
+
+  <h2 id="structure">Code structure</h2>
+  <div class="grid">
+    <div class="card"><h4>bin/logapp.js <span style="color:var(--faint)">(~600 lines)</span></h4>
+      <p style="color:var(--weak);font-size:13.5px">Two halves in one file:</p>
+      <ul>
+        <li><b>Module scope</b> — config consts, <span class="fn">parseLine</span>, <span class="fn">queryFile</span>, lock helpers, and the CLI half (<span class="fn">discoverDaemon</span>, <span class="fn">pipeToDaemon</span>, <span class="fn">chooseAndListen</span>, <span class="fn">main</span>).</li>
+        <li><b>Inside <span class="fn">runDaemon()</span></b> — the daemon's closured state (<code>streams</code>, <code>buffer</code>, <code>pending</code>, <code>clients</code>, <code>streamFiles</code>, <code>portsMap</code>) plus persistence helpers, <span class="fn">ingestEvent</span>, and the <code>http.createServer</code> route table.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>public/index.html <span style="color:var(--faint)">(~760 lines)</span></h4>
+      <p style="color:var(--weak);font-size:13.5px">Three blocks:</p>
+      <ul>
+        <li><b>&lt;style&gt;</b> — the whole Grafana-dark theme.</li>
+        <li><b>&lt;body&gt;</b> — nav, sidebar (search/apps/filters/display), volume panel, logs list.</li>
+        <li><b>&lt;script&gt;</b> — state, filter predicates, render loop, histogram, SSE client, and all the event handlers.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 id="backend-fns">Backend function reference (bin/logapp.js)</h2>
+  <table>
+    <tr><th>Function</th><th>Role</th></tr>
+    <tr><td class="fn">parseLine(line, name)</td><td>line → normalized event (JSON or plain text)</td></tr>
+    <tr><td class="fn">normalizeLevel / guessLevel</td><td>map numeric/string levels; infer level from plain text</td></tr>
+    <tr><td class="fn">queryFile(file, opts, cb)</td><td>reverse chunked read of one file with time/text/level filters</td></tr>
+    <tr><td class="fn">acquireLock / releaseLock</td><td>single-daemon guarantee via <code>O_EXCL</code> lock file</td></tr>
+    <tr><td class="fn">runDaemon()</td><td>the daemon: lock → bind → serve HTTP + SSE; holds all state</td></tr>
+    <tr><td class="fn">↳ registerStream(name)</td><td>create/reactivate a stream (past→live)</td></tr>
+    <tr><td class="fn">↳ detectPort(…, onFound)</td><td>process-tree + lsof port discovery (nodemon-safe)</td></tr>
+    <tr><td class="fn">↳ ingestEvent(ev)</td><td>ring push + disk write + queue for SSE</td></tr>
+    <tr><td class="fn">↳ writeToFile / openFile / closeFile</td><td>per-repo daily-segment append</td></tr>
+    <tr><td class="fn">↳ pruneIdle()</td><td>delete day-segments older than the retention window</td></tr>
+    <tr><td class="fn">↳ queryStreamSegs(name, opts, cb)</td><td>query only the relevant day-segments, newest-first</td></tr>
+    <tr><td class="fn">↳ broadcast(obj)</td><td>write an SSE message to every connected browser</td></tr>
+    <tr><td class="fn">chooseAndListen / tryListen</td><td>bind 9999 with fallback; reuse an existing daemon</td></tr>
+    <tr><td class="fn">healthCheck / discoverDaemon</td><td>find or spawn the daemon; verify it's ours</td></tr>
+    <tr><td class="fn">pipeToDaemon(name, src, port)</td><td>tee stdin to terminal + forward to <code>/ingest</code> (auto-reconnect)</td></tr>
+    <tr><td class="fn">getPgid / ingestPath</td><td>process-group id + the ingest URL with pid/pgid</td></tr>
+    <tr><td class="fn">main()</td><td>dispatch: <code>--daemon</code> / <code>--stop</code> / pipe / wrapper / UI</td></tr>
+  </table>
+
+  <h2 id="frontend-fns">Frontend function reference (public/index.html)</h2>
+  <table>
+    <tr><th>Function</th><th>Role</th></tr>
+    <tr><td class="fn">connect()</td><td>opens the <code>/events</code> EventSource; routes snapshot/logs/stream/rates</td></tr>
+    <tr><td class="fn">addEvent(ev, isLive)</td><td>push to <code>events[]</code>, update stream state, schedule render</td></tr>
+    <tr><td class="fn">passes / matchNoLevel / inRange / lineMatch</td><td>the filter predicates (level, time, app, line filters)</td></tr>
+    <tr><td class="fn">render()</td><td>rebuild the visible window from filtered events</td></tr>
+    <tr><td class="fn">rowHtml(ev)</td><td>one log row: time · level · <code>repo:ports</code> · message (+ pretty JSON)</td></tr>
+    <tr><td class="fn">renderHistogram / renderLegend</td><td>the logs-volume chart + clickable level legend</td></tr>
+    <tr><td class="fn">maybeLoadOlder()</td><td>infinite scroll — grow window, then fetch older via <code>/query</code></td></tr>
+    <tr><td class="fn">runSearchAll / applySearch</td><td>full-history search vs. live highlight</td></tr>
+    <tr><td class="fn">renderAppList / selectApp / loadAppHistory</td><td>the Apps dropdown + loading a repo's history</td></tr>
+    <tr><td class="fn">hljson / highlight / markTerms</td><td>JSON syntax highlighting + match highlighting</td></tr>
+    <tr><td class="fn">fmtFull / fmtHMS / istInputToEpoch</td><td>IST time formatting &amp; parsing</td></tr>
+  </table>
+
+  <h2 id="endpoints">HTTP endpoints</h2>
+  <table>
+    <tr><th>Endpoint</th><th>Purpose</th></tr>
+    <tr><td><span class="tag get">GET</span> <code>/</code></td><td>the UI (<code>index.html</code>), served <code>no-store</code> so it's always fresh</td></tr>
+    <tr><td><span class="tag get">GET</span> <code>/health</code></td><td><code>{ok:true, pid, streams}</code> — used for daemon discovery</td></tr>
+    <tr><td><span class="tag get">GET</span> <code>/streams</code></td><td>all streams: <code>{name, color, status, ports, conns, count, lastTs}</code></td></tr>
+    <tr><td><span class="tag get">GET</span> <code>/events</code></td><td>SSE — snapshot + live batches + stream/rate updates</td></tr>
+    <tr><td><span class="tag get">GET</span> <code>/query</code></td><td>historical read from disk (time / text / level / pagination)</td></tr>
+    <tr><td><span class="tag post">POST</span> <code>/ingest?name=&amp;pid=&amp;pgid=</code></td><td>the pipe client's long-lived line stream</td></tr>
+  </table>
+
+  <h2 id="config">Configuration (environment)</h2>
+  <table>
+    <tr><th>Variable</th><th>Default</th><th>Effect</th></tr>
+    <tr><td><code>LOGAPP_PORT</code></td><td>9999</td><td>preferred daemon port (falls back if busy)</td></tr>
+    <tr><td><code>LOGAPP_LOGS_DIR</code></td><td>~/Downloads/logapp-logs</td><td>where per-repo segment files live</td></tr>
+    <tr><td><code>LOGAPP_RETAIN_DAYS</code></td><td>7</td><td>how many days of segments to keep</td></tr>
+    <tr><td><code>LOGAPP_BUFFER</code></td><td>20000</td><td>in-RAM ring size (live window)</td></tr>
+    <tr><td><code>LOGAPP_SNAPSHOT</code></td><td>4000</td><td>lines sent to a newly-connected browser</td></tr>
+    <tr><td><code>LOGAPP_LIVE_BATCH</code></td><td>400</td><td>max lines per 200ms SSE flush (rate limit)</td></tr>
+    <tr><td><code>LOGAPP_PERSIST</code></td><td>1</td><td>set <code>0</code> to disable disk persistence entirely</td></tr>
+  </table>
+
+  <h2 id="testing">Testing</h2>
+  <ul>
+    <li><b>Backend E2E</b> — <code>npm test</code> (<code>test/e2e.js</code>, dependency-free): daemon start/health, port fallback, segment persistence, persist-on-kill, past-on-disconnect, and the <code>/query</code> engine.</li>
+    <li><b>Browser E2E</b> — a headless-Chrome (Puppeteer) suite drives the real UI end-to-end: histogram, filters, search + full-history search, prettify, time picker + drag-zoom, infinite scroll, and the Apps dropdown (live/past, multi-port, name/port search, past-load).</li>
+  </ul>
+
+  <footer>
+    logapp — Grafana-Explore-style live log viewer. Zero dependencies (Node stdlib + browser). This document describes the implementation as of the current <code>main</code>.
+  </footer>
+</main>
+</body>
+</html>

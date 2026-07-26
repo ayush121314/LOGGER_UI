@@ -64,6 +64,8 @@ Because it's a *global* alias, zsh rewrites `--logapp` anywhere on the line into
 
 The UI is a **Grafana Explore–style** logs view.
 
+> 📖 **Detailed internals:** [`docs/how-it-works.html`](docs/how-it-works.html) — a full section-wise walkthrough of the architecture, data flow, storage model, the `/query` engine, the firehose optimisations, and a complete function/endpoint reference. Open it in a browser.
+
 ## Built for the firehose (10k+ lines/sec)
 
 Tested at **10,000 lines/sec**: the daemon stays ~12% of one core and Chrome
