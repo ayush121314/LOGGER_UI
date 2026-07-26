@@ -183,7 +183,10 @@
   .row.notime .t { display: none; }
   .chead, .crow { display: grid; grid-template-columns: var(--cols); align-items: baseline; }
   .chead { position: sticky; top: 0; z-index: 4; background: var(--panel); border-bottom: 1px solid var(--border2); }
-  .chead span { padding: 7px 10px; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-right: 1px solid var(--border); }
+  .chead span { position: relative; padding: 7px 10px; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-right: 1px solid var(--border); }
+  .chead .cresize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; z-index: 6; }
+  .chead .cresize:hover { background: var(--blue2); opacity: .6; }
+  .chead.resizing { user-select: none; cursor: col-resize; }
   .crow { border-bottom: 1px solid #15171c; font-family: "Roboto Mono", Menlo, monospace; font-size: 12.5px; }
   .crow span { padding: 3px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-right: 1px solid #14161b; }
   .crow:nth-child(even) { background: rgba(255,255,255,.018); }
@@ -374,7 +377,13 @@ const searchResults = []
 let histStart = 0
 let histEnd = 0
 let live = true, wrap = false, prettify = true, dedup = false, showTime = true, sortDesc = true, compact = false
-let compactColFreq = {}, compactHidden = {}, colddSig = ''
+let compactColFreq = {}, compactHidden = {}, colddSig = '', colWidths = {}, lastCompactCols = []
+try { compactHidden = JSON.parse(localStorage.getItem('logapp.colHidden')) || {} } catch (e) { compactHidden = {} }
+try { colWidths = JSON.parse(localStorage.getItem('logapp.colWidths')) || {} } catch (e) { colWidths = {} }
+function saveColPrefs () {
+  try { localStorage.setItem('logapp.colHidden', JSON.stringify(compactHidden)) } catch (e) {}
+  try { localStorage.setItem('logapp.colWidths', JSON.stringify(colWidths)) } catch (e) {}
+}
 let pendingNew = 0, renderTimer = null, lastHist = 0, atEdgeAllowed = true
 
 const $ = (id) => document.getElementById(id)
@@ -493,17 +502,23 @@ function compactCols (out) {
   return Object.keys(freq).sort((a, b) => freq[b] - freq[a] || a.localeCompare(b))
 }
 
+function cw (key, def) { return colWidths[key] ? colWidths[key] + 'px' : def }
+
 function compactTemplate (cols) {
-  return (showTime ? '90px ' : '') + '44px 148px minmax(150px,1.4fr)' +
-    (cols.length ? ' ' + cols.map(() => 'minmax(62px,140px)').join(' ') : '')
+  return (showTime ? cw('@time', '90px') + ' ' : '') +
+    cw('@level', '44px') + ' ' + cw('@app', '148px') + ' ' + cw('@message', 'minmax(150px,1.4fr)') +
+    (cols.length ? ' ' + cols.map((k) => cw('f:' + k, 'minmax(62px,140px)')).join(' ') : '')
 }
 
 function compactHead (cols) {
-  return '<div class="chead">' + (showTime ? '<span>Time</span>' : '') +
-    '<span>Level</span><span>App</span><span>Message</span>' +
-    cols.map((c) => '<span>' + esc(c) + '</span>').join('') +
+  const cell = (label, ck) => '<span data-ck="' + esc(ck) + '">' + label + '<i class="cresize"></i></span>'
+  return '<div class="chead">' + (showTime ? cell('Time', '@time') : '') +
+    cell('Level', '@level') + cell('App', '@app') + cell('Message', '@message') +
+    cols.map((c) => cell(esc(c), 'f:' + c)).join('') +
     '</div>'
 }
+
+function applyCols () { logEl.style.setProperty('--cols', compactTemplate(lastCompactCols)) }
 
 function compactRow (ev, dupCount, cols) {
   const s = streamState[ev.stream]
@@ -562,6 +577,7 @@ function render () {
     present.forEach((k, i) => { compactColFreq[k] = Math.max(compactColFreq[k] || 0, present.length - i) })
     const allCols = Object.keys(compactColFreq).sort((a, b) => compactColFreq[b] - compactColFreq[a] || a.localeCompare(b))
     const cols = allCols.filter((k) => !compactHidden[k])
+    lastCompactCols = cols
     logEl.style.setProperty('--cols', compactTemplate(cols))
     logEl.classList.add('compactmode')
     logEl.innerHTML = compactHead(cols) + out.map(([ev, c]) => compactRow(ev, c, cols)).join('')
@@ -845,15 +861,34 @@ $('colpicklist').addEventListener('change', (e) => {
   const cb = e.target.closest('input[data-col]'); if (!cb) return
   const k = cb.getAttribute('data-col')
   if (cb.checked) delete compactHidden[k]; else compactHidden[k] = true
-  scheduleRender(true)
+  saveColPrefs(); scheduleRender(true)
 })
 $('colall').addEventListener('change', (e) => {
   const cols = colddSig ? colddSig.split(',') : []
   if (e.target.checked) { compactHidden = {} } else { cols.forEach((k) => { compactHidden[k] = true }) }
   colddSig = ''
-  scheduleRender(true)
+  saveColPrefs(); scheduleRender(true)
 })
 document.addEventListener('click', (e) => { if (!e.target.closest('.coldd')) $('colddpanel').classList.remove('open') })
+
+let colResize = null
+logEl.addEventListener('mousedown', (e) => {
+  const h = e.target.closest('.cresize'); if (!h) return
+  const span = h.parentElement; const ck = span.getAttribute('data-ck'); if (!ck) return
+  colResize = { ck, startX: e.clientX, startW: span.getBoundingClientRect().width }
+  document.querySelector('.chead').classList.add('resizing')
+  e.preventDefault(); e.stopPropagation()
+})
+window.addEventListener('mousemove', (e) => {
+  if (!colResize) return
+  const w = Math.max(40, Math.round(colResize.startW + (e.clientX - colResize.startX)))
+  colWidths[colResize.ck] = w; applyCols()
+})
+window.addEventListener('mouseup', () => {
+  if (!colResize) return
+  colResize = null; saveColPrefs()
+  const ch = document.querySelector('.chead'); if (ch) ch.classList.remove('resizing')
+})
 $('prettify').addEventListener('change', (e) => {
   prettify = e.target.checked
   if (prettify) { events.forEach((ev) => { if (ev.fields) expanded.add(ev.id) }) } else { expanded.clear() }
