@@ -181,7 +181,7 @@
     border: 1px solid var(--border2); border-radius: 9px; padding: 0 7px; font-size: 11px; }
   .row.notime { grid-template-columns: 3px auto 1fr; }
   .row.notime .t { display: none; }
-  .chead, .crow { display: grid; grid-template-columns: var(--cols); align-items: baseline; }
+  .chead, .crow { display: grid; grid-template-columns: var(--cols); align-items: start; }
   .chead { position: sticky; top: 0; z-index: 4; background: var(--panel); border-bottom: 1px solid var(--border2); }
   .chead span { padding: 7px 10px; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-right: 1px solid var(--border); }
   .crow { border-bottom: 1px solid #15171c; font-family: "Roboto Mono", Menlo, monospace; font-size: 12.5px; }
@@ -197,9 +197,23 @@
   .crow.error .clv { color: var(--l-error); } .crow.fatal .clv { color: var(--l-fatal); }
   .crow .cap { color: var(--blue2); }
   .crow .cfld { color: var(--text); } .crow .cnull { color: var(--faint); }
-  .crow .cmsg { color: var(--text); border-right: none; }
+  .crow .cmsg { color: var(--text); border-right: none; white-space: normal; overflow: visible; word-break: break-word; line-height: 1.45; }
   .crow mark { background: #b9840f; color: #fff; border-radius: 1px; }
   .crow .dup { background: var(--raised); color: var(--weak); border: 1px solid var(--border2); border-radius: 9px; padding: 0 6px; font-size: 11px; }
+  .coldd { position: relative; }
+  .coldd-trigger { display: inline-flex; align-items: center; gap: 6px; background: var(--raised); color: var(--text);
+    border: 1px solid var(--border2); border-radius: 3px; padding: 4px 9px; font-size: 12px; cursor: pointer; }
+  .coldd-trigger:hover { border-color: var(--blue2); }
+  .coldd-trigger .cc { color: var(--faint); font-size: 10px; }
+  .coldd-panel { display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; width: 220px;
+    max-height: 340px; overflow-y: auto; background: var(--panel); border: 1px solid var(--border2); border-radius: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.55); padding: 4px; }
+  .coldd-panel.open { display: block; }
+  .coldd-panel .ci { display: flex; align-items: center; gap: 8px; padding: 5px 8px; font-size: 12.5px; color: var(--text);
+    border-radius: 3px; cursor: pointer; white-space: nowrap; }
+  .coldd-panel .ci:hover { background: var(--hover); }
+  .coldd-panel .ci input { cursor: pointer; }
+  .coldd-panel .ci-all { border-bottom: 1px solid var(--border); margin-bottom: 3px; color: var(--weak); }
   .details { grid-column: 1 / -1; background: #0c0d10; border-top: 1px solid var(--border); padding: 8px 12px 12px 25px; }
   .details .dh { color: var(--weak); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; margin: 4px 0 6px; }
   .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 18px; }
@@ -310,7 +324,15 @@
       <div class="xaxis" id="xaxis"></div>
       <div class="legend" id="legend"></div>
     </div>
-    <div class="logshead"><div class="h">Logs <span id="count">0</span></div><div class="spacer"></div><span id="rate" class="rate"></span></div>
+    <div class="logshead"><div class="h">Logs <span id="count">0</span></div><div class="spacer"></div>
+      <div class="coldd" id="coldd" style="display:none">
+        <button class="coldd-trigger" id="colddtrigger">▦ Columns: <span id="colddlabel">All</span> <span class="cc">▾</span></button>
+        <div class="coldd-panel" id="colddpanel">
+          <label class="ci ci-all"><input type="checkbox" id="colall" checked /> <b>All columns</b></label>
+          <div id="colpicklist" class="colpicklist"></div>
+        </div>
+      </div>
+      <span id="rate" class="rate"></span></div>
     <div id="searchbanner"><span class="txt"></span><button id="searchexit">✕ Back to live</button></div>
     <div id="log"><div class="empty" id="empty">Waiting for logs… run a server with <code>… --logapp</code>.</div></div>
   </main>
@@ -350,6 +372,7 @@ const searchResults = []
 let histStart = 0
 let histEnd = 0
 let live = true, wrap = false, prettify = true, dedup = false, showTime = true, sortDesc = true, compact = false
+let compactColFreq = {}, compactHidden = {}, colddSig = ''
 let pendingNew = 0, renderTimer = null, lastHist = 0, atEdgeAllowed = true
 
 const $ = (id) => document.getElementById(id)
@@ -454,7 +477,7 @@ function rowHtml (ev, dupCount) {
     '<div class="bar"></div>' + t + lv + m + det + '</div>'
 }
 
-const COMPACT_SKIP = { level: 1, time: 1, msg: 1, message: 1, service: 1, event: 1, stream: 1 }
+const COMPACT_SKIP = { level: 1, time: 1, msg: 1, message: 1, service: 1, event: 1, stream: 1, port: 1 }
 
 function compactCols (out) {
   const freq = {}
@@ -469,15 +492,15 @@ function compactCols (out) {
 }
 
 function compactTemplate (cols) {
-  return (showTime ? '96px ' : '') + '48px 150px ' +
-    cols.map(() => 'minmax(70px,130px)').join(' ') + (cols.length ? ' ' : '') + 'minmax(220px,1fr)'
+  return (showTime ? '96px ' : '') + '48px 150px minmax(340px,1.3fr)' +
+    (cols.length ? ' ' + cols.map(() => 'minmax(80px,150px)').join(' ') : '')
 }
 
 function compactHead (cols) {
   return '<div class="chead">' + (showTime ? '<span>Time</span>' : '') +
-    '<span>Level</span><span>App</span>' +
+    '<span>Level</span><span>App</span><span>Message</span>' +
     cols.map((c) => '<span>' + esc(c) + '</span>').join('') +
-    '<span>Message</span></div>'
+    '</div>'
 }
 
 function compactRow (ev, dupCount, cols) {
@@ -487,14 +510,33 @@ function compactRow (ev, dupCount, cols) {
   cells += '<span class="clv">' + ev.level.toUpperCase() + '</span>'
   cells += '<span class="cap" title="' + esc(ev.stream) + '">' + esc(ev.stream) +
     (s && s.ports && s.ports.length ? ':' + esc(s.ports.join(',')) : '') + '</span>'
+  cells += '<span class="cmsg" title="' + esc(ev.msg || ev.raw) + '">' + highlight(ev.msg || ev.raw) +
+    (dupCount > 1 ? ' <span class="dup">×' + dupCount + '</span>' : '') + '</span>'
   cells += cols.map((k) => {
     const has = (k in f) && typeof f[k] !== 'object' && f[k] !== null
     const v = has ? String(f[k]) : ''
     return '<span class="cfld" title="' + esc(v) + '">' + (has ? highlight(v) : '<span class="cnull">·</span>') + '</span>'
   }).join('')
-  cells += '<span class="cmsg" title="' + esc(ev.msg || ev.raw) + '">' + highlight(ev.msg || ev.raw) +
-    (dupCount > 1 ? ' <span class="dup">×' + dupCount + '</span>' : '') + '</span>'
   return '<div class="crow ' + ev.level + '">' + cells + '</div>'
+}
+
+function updateColLabel (allCols) {
+  const vis = allCols.filter((k) => !compactHidden[k]).length
+  const all = vis === allCols.length
+  $('colddlabel').textContent = all ? 'All' : (vis + '/' + allCols.length)
+  const cb = $('colall'); cb.checked = all; cb.indeterminate = !all && vis > 0
+}
+
+function renderColPicker (allCols) {
+  $('coldd').style.display = allCols.length ? '' : 'none'
+  const sig = allCols.join(',')
+  if (sig !== colddSig) {
+    colddSig = sig
+    $('colpicklist').innerHTML = allCols.map((k) =>
+      '<label class="ci"><input type="checkbox" data-col="' + esc(k) + '"' + (compactHidden[k] ? '' : ' checked') + ' /> ' + esc(k) + '</label>'
+    ).join('')
+  }
+  updateColLabel(allCols)
 }
 
 function render () {
@@ -512,13 +554,19 @@ function render () {
     })
     if (prev) out.push([prev, cnt])
   } else { disp.forEach((ev) => out.push([ev, 1])) }
+  logEl.classList.toggle('wrap', wrap)
   if (compact) {
-    const cols = compactCols(out)
+    const present = compactCols(out)
+    present.forEach((k, i) => { compactColFreq[k] = Math.max(compactColFreq[k] || 0, present.length - i) })
+    const allCols = Object.keys(compactColFreq).sort((a, b) => compactColFreq[b] - compactColFreq[a] || a.localeCompare(b))
+    const cols = allCols.filter((k) => !compactHidden[k])
     logEl.style.setProperty('--cols', compactTemplate(cols))
     logEl.classList.add('compactmode')
     logEl.innerHTML = compactHead(cols) + out.map(([ev, c]) => compactRow(ev, c, cols)).join('')
+    renderColPicker(allCols)
   } else {
     logEl.classList.remove('compactmode')
+    $('coldd').style.display = 'none'
     logEl.innerHTML = out.map(([ev, c]) => rowHtml(ev, c)).join('')
   }
   if (!out.length) {
@@ -789,6 +837,21 @@ $('time').addEventListener('change', (e) => { showTime = e.target.checked; sched
 $('wrap').addEventListener('change', (e) => { wrap = e.target.checked; scheduleRender(true) })
 $('dedup').addEventListener('change', (e) => { dedup = e.target.checked; scheduleRender(true) })
 $('compact').addEventListener('change', (e) => { compact = e.target.checked; scheduleRender(true) })
+$('colddtrigger').addEventListener('click', (e) => { e.stopPropagation(); $('colddpanel').classList.toggle('open') })
+$('colddpanel').addEventListener('click', (e) => e.stopPropagation())
+$('colpicklist').addEventListener('change', (e) => {
+  const cb = e.target.closest('input[data-col]'); if (!cb) return
+  const k = cb.getAttribute('data-col')
+  if (cb.checked) delete compactHidden[k]; else compactHidden[k] = true
+  scheduleRender(true)
+})
+$('colall').addEventListener('change', (e) => {
+  const cols = colddSig ? colddSig.split(',') : []
+  if (e.target.checked) { compactHidden = {} } else { cols.forEach((k) => { compactHidden[k] = true }) }
+  colddSig = ''
+  scheduleRender(true)
+})
+document.addEventListener('click', (e) => { if (!e.target.closest('.coldd')) $('colddpanel').classList.remove('open') })
 $('prettify').addEventListener('change', (e) => {
   prettify = e.target.checked
   if (prettify) { events.forEach((ev) => { if (ev.fields) expanded.add(ev.id) }) } else { expanded.clear() }
