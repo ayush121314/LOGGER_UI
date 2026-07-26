@@ -222,12 +222,13 @@ async function runDaemon () {
   if (PERSIST) {
     try { fs.mkdirSync(LOGS_DIR, { recursive: true }) } catch (e) {}
     try { portsMap = JSON.parse(fs.readFileSync(PORTS_FILE, 'utf8')) } catch (e) { portsMap = {} }
+    for (const k in portsMap) { if (!Array.isArray(portsMap[k])) portsMap[k] = portsMap[k] ? [String(portsMap[k])] : [] }
     for (const repo of listRepos()) {
       const segs = listSegs(repo)
       if (!segs.length) continue
       let mtime = Date.now()
       try { mtime = fs.statSync(segPath(repo, segs[segs.length - 1])).mtimeMs } catch (e) {}
-      streams.set(repo, { name: repo, color: PALETTE[colorIdx++ % PALETTE.length], status: 'past', count: 0, lastTs: mtime, port: portsMap[repo] || null })
+      streams.set(repo, { name: repo, color: PALETTE[colorIdx++ % PALETTE.length], status: 'past', count: 0, lastTs: mtime, ports: (portsMap[repo] || []).slice(), conns: 0 })
     }
     setTimeout(pruneIdle, 500)
     setInterval(pruneIdle, 6 * 3600 * 1000)
@@ -239,20 +240,20 @@ async function runDaemon () {
       if (existing.status !== 'live') { existing.status = 'live'; broadcast({ type: 'stream', stream: existing }) }
       return existing
     }
-    const s = { name, color: PALETTE[colorIdx++ % PALETTE.length], status: 'live', count: 0, lastTs: Date.now(), port: portsMap[name] || null }
+    const s = { name, color: PALETTE[colorIdx++ % PALETTE.length], status: 'live', count: 0, lastTs: Date.now(), ports: (portsMap[name] || []).slice(), conns: 0 }
     streams.set(name, s)
     broadcast({ type: 'stream', stream: s })
     return s
   }
 
-  function detectPort (name, pgid, clientPid) {
+  function detectPort (name, pgid, clientPid, onFound) {
     if (!pgid) return
     let tries = 0
     const timer = setInterval(() => {
       tries++
       if (tries > 20) { clearInterval(timer); return }
       const s = streams.get(name)
-      if (!s || s.port) { clearInterval(timer); return }
+      if (!s) { clearInterval(timer); return }
       exec('ps -ax -o pid=,ppid=,pgid=', (e, psout) => {
         if (e || !psout) return
         const childrenOf = new Map()
@@ -283,7 +284,11 @@ async function runDaemon () {
           })
           if (found) {
             const st = streams.get(name)
-            if (st) { st.port = found; portsMap[name] = found; savePorts(); broadcast({ type: 'stream', stream: st }) }
+            if (st) {
+              if (st.ports.indexOf(found) === -1) { st.ports.push(found); broadcast({ type: 'stream', stream: st }) }
+              portsMap[name] = st.ports.slice(); savePorts()
+            }
+            if (onFound) onFound(found)
             clearInterval(timer)
           }
         })
@@ -393,9 +398,10 @@ async function runDaemon () {
     if (req.method === 'POST' && url.pathname === '/ingest') {
       const name = (url.searchParams.get('name') || 'stream').slice(0, 60)
       const s = registerStream(name)
-      if (s) s.port = null
+      if (s) s.conns = (s.conns || 0) + 1
       openFile(name)
-      detectPort(name, url.searchParams.get('pgid'), url.searchParams.get('pid'))
+      let connPort = null
+      detectPort(name, url.searchParams.get('pgid'), url.searchParams.get('pid'), (p) => { connPort = p })
       const splitter = new LineSplitter((line) => ingestEvent(parseLine(line, name)))
       req.setEncoding('utf8')
       req.on('data', (c) => splitter.push(c))
@@ -403,8 +409,14 @@ async function runDaemon () {
         splitter.end()
         res.writeHead(200); res.end('ok')
       })
-      req.on('close', () => { closeFile(name); setStreamStatus(name, 'past') })
-      req.on('error', () => { setStreamStatus(name, 'past') })
+      req.on('close', () => {
+        const st = streams.get(name)
+        if (!st) return
+        if (connPort) { const i = st.ports.indexOf(connPort); if (i !== -1) st.ports.splice(i, 1) }
+        st.conns = Math.max(0, (st.conns || 1) - 1)
+        if (st.conns === 0) { closeFile(name); st.status = 'past' }
+        broadcast({ type: 'stream', stream: st })
+      })
       return
     }
 

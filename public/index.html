@@ -98,7 +98,14 @@
   .searchrow { display: flex; gap: 6px; }
   .searchrow .lin { flex: 1; }
   .searchrow .tbtn { flex: none; }
-  .applist { display: flex; flex-direction: column; gap: 1px; max-height: 220px; overflow-y: auto; }
+  .appdd { position: relative; }
+  .appddtrigger { display: flex; align-items: center; justify-content: space-between; width: 100%; background: var(--panel2); border: 1px solid var(--border2); color: var(--text); border-radius: 3px; padding: 7px 10px; cursor: pointer; font-size: 12.5px; }
+  .appddtrigger:hover { border-color: var(--blue); }
+  .appddtrigger .chev { color: var(--faint); }
+  .appddpanel { display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 18; flex-direction: column; gap: 6px;
+    background: var(--panel2); border: 1px solid var(--border2); border-radius: 3px; padding: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.55); }
+  .appddpanel.open { display: flex; }
+  .applist { display: flex; flex-direction: column; gap: 1px; max-height: 240px; overflow-y: auto; }
   .approw { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 3px; cursor: pointer; font-size: 12.5px; user-select: none; }
   .approw:hover { background: var(--hover); }
   .approw.sel { background: var(--blue-bg); border: 1px solid #24406e; }
@@ -242,8 +249,13 @@
 
     <div class="sb-sec">
       <div class="sb-h">Apps</div>
-      <input id="appsearch" class="lin mono" placeholder="search app or port…" autocomplete="off" />
-      <div id="applist" class="applist"></div>
+      <div class="appdd">
+        <button id="appddtrigger" class="appddtrigger"><span id="appddlabel">All apps</span><span class="chev">▾</span></button>
+        <div id="appddpanel" class="appddpanel">
+          <input id="appsearch" class="lin mono" placeholder="search app or port…" autocomplete="off" />
+          <div id="applist" class="applist"></div>
+        </div>
+      </div>
     </div>
 
     <div class="sb-sec">
@@ -409,7 +421,7 @@ function rowHtml (ev, dupCount) {
   const t = showTime ? '<div class="t mono">' + fmtFull(ev.ts) + '</div>' : ''
   const lv = '<div class="lvl mono">' + ev.level.toUpperCase() + '</div>'
   let m = '<div class="m mono">'
-  if (showSrc) m += '<span class="src">' + esc(ev.stream) + (s && s.port ? ':' + esc(s.port) : '') + '</span>'
+  if (showSrc) m += '<span class="src">' + esc(ev.stream) + (s && s.ports && s.ports.length ? ':' + esc(s.ports.join(',')) : '') + '</span>'
   m += highlight(ev.msg || ev.raw)
   if (dupCount > 1) m += '<span class="dup">×' + dupCount + '</span>'
   m += '</div>'
@@ -574,8 +586,8 @@ function addEvent (ev, isLive) {
 }
 
 function applyStream (s) {
-  if (!streamState[s.name]) streamState[s.name] = { color: appColor(s.name), port: s.port || null, status: s.status || 'live' }
-  else { if ('port' in s) streamState[s.name].port = s.port; if (s.status) streamState[s.name].status = s.status }
+  if (!streamState[s.name]) streamState[s.name] = { color: appColor(s.name), ports: s.ports || [], status: s.status || 'live' }
+  else { if (s.ports) streamState[s.name].ports = s.ports; if (s.status) streamState[s.name].status = s.status }
   renderAppList()
 }
 
@@ -585,10 +597,11 @@ function renderAppList () {
   const rows = ['<div class="approw' + (appFilter ? '' : ' sel') + '" data-app=""><span class="adot" style="background:transparent"></span><span class="anm">All apps</span></div>']
   names.forEach((n) => {
     const s = streamState[n]
-    const port = s.port ? String(s.port) : ''
-    if (q && n.toLowerCase().indexOf(q) === -1 && port.indexOf(q) === -1) return
+    const ports = (s.ports || []).map(String)
+    const portStr = ports.join(',')
+    if (q && n.toLowerCase().indexOf(q) === -1 && ports.every((p) => p.indexOf(q) === -1)) return
     rows.push('<div class="approw ' + (s.status === 'live' ? 'live' : '') + (appFilter === n ? ' sel' : '') + '" data-app="' + esc(n) + '">' +
-      '<span class="adot"></span><span class="anm">' + esc(n) + '</span>' + (port ? '<span class="apt">:' + esc(port) + '</span>' : '') + (s.status !== 'live' ? '<span class="past">past</span>' : '') + '</div>')
+      '<span class="adot"></span><span class="anm">' + esc(n) + '</span>' + (portStr ? '<span class="apt">:' + esc(portStr) + '</span>' : '') + (s.status !== 'live' ? '<span class="past">past</span>' : '') + '</div>')
   })
   $('applist').innerHTML = rows.join('')
   Array.from($('applist').querySelectorAll('.approw')).forEach((el) => { el.onclick = () => selectApp(el.getAttribute('data-app')) })
@@ -596,6 +609,8 @@ function renderAppList () {
 
 function selectApp (name) {
   appFilter = name || ''
+  $('appddlabel').textContent = appFilter || 'All apps'
+  $('appddpanel').classList.remove('open')
   noMoreOlder = false
   renderAppList()
   if (appFilter) loadAppHistory(appFilter)
@@ -640,12 +655,14 @@ function connect () {
 function addFilter () { const v = $('lval').value.trim(); if (!v) return; lineFilters.push({ op: $('op').value, value: v }); $('lval').value = ''; renderActiveFilters(); scheduleRender(true); renderHistogram() }
 $('addf').onclick = addFilter
 $('lval').addEventListener('keydown', (e) => { if (e.key === 'Enter') addFilter() })
+$('appddtrigger').onclick = (e) => { e.stopPropagation(); const open = $('appddpanel').classList.toggle('open'); if (open) { renderAppList(); $('appsearch').focus() } }
+document.addEventListener('click', (e) => { if (!e.target.closest('.appdd')) $('appddpanel').classList.remove('open') })
 let apptimer
 $('appsearch').addEventListener('input', () => { appSearch = $('appsearch').value; clearTimeout(apptimer); apptimer = setTimeout(renderAppList, 100) })
 $('appsearch').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return
   const q = appSearch.trim().toLowerCase(); if (!q) return
-  const byPort = Object.keys(streamState).find((n) => streamState[n].port && String(streamState[n].port) === q)
+  const byPort = Object.keys(streamState).find((n) => (streamState[n].ports || []).map(String).indexOf(q) !== -1)
   const byName = Object.keys(streamState).find((n) => n.toLowerCase() === q) || Object.keys(streamState).find((n) => n.toLowerCase().indexOf(q) !== -1)
   const pick = byPort || byName
   if (pick) selectApp(pick)

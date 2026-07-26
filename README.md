@@ -108,10 +108,15 @@ Logs are persisted per **repo** (the stream name), not per port:
   `unlink`ed — no giant-file rewrite, so it scales to huge logs without I/O
   storms (the standard log-segmentation / retention-by-segment pattern used by
   Loki, Elasticsearch ILM, logrotate).
-- **Apps panel** lists every repo — **live** (green dot, currently streaming) and
-  **past** (stopped, still on disk within 7 days). Search by **app name or port**;
-  selecting an app streams its history back from disk (`/query`, reverse-read),
-  and all filters (level, line, search, time) apply to the old logs too.
+- **Apps dropdown** lists every repo — **live** (green dot, currently streaming)
+  and **past** (stopped, still on disk within 7 days). Click to open, then search
+  by **app name or port**; selecting an app streams its history back from disk
+  (`/query`, reverse-read) and all filters (level, line, search, time) apply to the
+  old logs too.
+- **Same repo on multiple ports** (e.g. `3000` and `3001` at once) is one app: both
+  streams append to the same repo folder (Node serialises each line write, so no
+  corruption), it shows every active port (`:3000,3001`), and stays **live** via a
+  connection ref-count until the last instance stops.
 
 In memory the daemon keeps a bounded ring (`LOGAPP_BUFFER`, default 20000) and
 ships only the last `LOGAPP_SNAPSHOT` (4000) lines to a new tab, so Chrome stays
