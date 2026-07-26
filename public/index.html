@@ -180,22 +180,24 @@
     border: 1px solid var(--border2); border-radius: 9px; padding: 0 7px; font-size: 11px; }
   .row.notime { grid-template-columns: 3px auto 1fr; }
   .row.notime .t { display: none; }
-  .crow { display: flex; align-items: baseline; gap: 12px; padding: 2px 14px; border-bottom: 1px solid #16181d;
-    white-space: nowrap; overflow: hidden; font-family: "Roboto Mono", Menlo, monospace; font-size: 12.5px; }
-  .crow:hover { background: var(--hover); }
-  .crow.error { background: rgba(226,77,66,.07); } .crow.error .cmsg { color: #ff6b60; }
+  .chead, .crow { display: grid; grid-template-columns: var(--cols); align-items: baseline; }
+  .chead { position: sticky; top: 0; z-index: 4; background: var(--panel); border-bottom: 1px solid var(--border2); }
+  .chead span { padding: 7px 10px; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-right: 1px solid var(--border); }
+  .crow { border-bottom: 1px solid #15171c; font-family: "Roboto Mono", Menlo, monospace; font-size: 12.5px; }
+  .crow span { padding: 3px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-right: 1px solid #14161b; }
+  .crow:nth-child(even) { background: rgba(255,255,255,.018); }
+  .crow.error { background: rgba(226,77,66,.09); } .crow.error .cmsg { color: #ff6b60; }
   .crow.warn .cmsg { color: #f2c65a; } .crow.fatal .cmsg { color: #cbb0ff; }
-  .crow .ct { color: var(--weak); width: 92px; flex: none; }
-  .crow.notime .ct { display: none; }
-  .crow .clv { width: 44px; flex: none; font-weight: 700; font-size: 10.5px; }
+  .crow:hover { background: var(--hover); }
+  .crow .ct { color: var(--weak); }
+  .crow .clv { font-weight: 700; font-size: 10.5px; }
   .crow.trace .clv { color: var(--l-trace); } .crow.debug .clv { color: var(--l-debug); }
   .crow.info .clv { color: var(--l-info); } .crow.warn .clv { color: var(--l-warn); }
   .crow.error .clv { color: var(--l-error); } .crow.fatal .clv { color: var(--l-fatal); }
-  .crow .cap { width: 150px; flex: none; color: var(--blue2); overflow: hidden; text-overflow: ellipsis; }
-  .crow .cmsg { flex: 0 1 auto; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
-  .crow .cmsg mark { background: #b9840f; color: #fff; border-radius: 1px; }
-  .crow .cfields { flex: 1; min-width: 0; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
-  .crow .cfields b { color: #7aa2f7; font-weight: 400; }
+  .crow .cap { color: var(--blue2); }
+  .crow .cfld { color: var(--text); } .crow .cnull { color: var(--faint); }
+  .crow .cmsg { color: var(--text); border-right: none; }
+  .crow mark { background: #b9840f; color: #fff; border-radius: 1px; }
   .crow .dup { background: var(--raised); color: var(--weak); border: 1px solid var(--border2); border-radius: 9px; padding: 0 6px; font-size: 11px; }
   .details { grid-column: 1 / -1; background: #0c0d10; border-top: 1px solid var(--border); padding: 8px 12px 12px 25px; }
   .details .dh { color: var(--weak); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; margin: 4px 0 6px; }
@@ -451,19 +453,47 @@ function rowHtml (ev, dupCount) {
     '<div class="bar"></div>' + t + lv + m + det + '</div>'
 }
 
-function compactRow (ev, dupCount) {
+const COMPACT_SKIP = { level: 1, time: 1, msg: 1, message: 1, service: 1, event: 1, stream: 1 }
+
+function compactCols (out) {
+  const freq = {}
+  out.forEach(([ev]) => {
+    const f = ev.fields; if (!f) return
+    for (const k in f) {
+      if (COMPACT_SKIP[k] || typeof f[k] === 'object' || f[k] === null) continue
+      freq[k] = (freq[k] || 0) + 1
+    }
+  })
+  return Object.keys(freq).sort((a, b) => freq[b] - freq[a] || a.localeCompare(b)).slice(0, 5)
+}
+
+function compactTemplate (cols) {
+  return (showTime ? '96px ' : '') + '48px 150px ' +
+    cols.map(() => 'minmax(70px,130px)').join(' ') + (cols.length ? ' ' : '') + 'minmax(220px,1fr)'
+}
+
+function compactHead (cols) {
+  return '<div class="chead">' + (showTime ? '<span>Time</span>' : '') +
+    '<span>Level</span><span>App</span>' +
+    cols.map((c) => '<span>' + esc(c) + '</span>').join('') +
+    '<span>Message</span></div>'
+}
+
+function compactRow (ev, dupCount, cols) {
   const s = streamState[ev.stream]
   const f = ev.fields || {}
-  const skip = { level: 1, time: 1, msg: 1, message: 1, service: 1, event: 1, stream: 1 }
-  const extra = Object.keys(f).filter((k) => !skip[k] && typeof f[k] !== 'object' && f[k] !== null)
-    .map((k) => '<b>' + esc(k) + '</b>=' + esc(String(f[k]))).join('  ')
-  return '<div class="crow ' + ev.level + (showTime ? '' : ' notime') + '">' +
-    '<span class="ct">' + fmtFull(ev.ts).slice(11) + '</span>' +
-    '<span class="clv">' + ev.level.toUpperCase() + '</span>' +
-    '<span class="cap">' + esc(ev.stream) + (s && s.ports && s.ports.length ? ':' + esc(s.ports.join(',')) : '') + '</span>' +
-    '<span class="cmsg">' + highlight(ev.msg || ev.raw) + (dupCount > 1 ? ' <span class="dup">×' + dupCount + '</span>' : '') + '</span>' +
-    (extra ? '<span class="cfields">' + markTerms(extra) + '</span>' : '') +
-    '</div>'
+  let cells = showTime ? '<span class="ct">' + fmtFull(ev.ts).slice(11) + '</span>' : ''
+  cells += '<span class="clv">' + ev.level.toUpperCase() + '</span>'
+  cells += '<span class="cap" title="' + esc(ev.stream) + '">' + esc(ev.stream) +
+    (s && s.ports && s.ports.length ? ':' + esc(s.ports.join(',')) : '') + '</span>'
+  cells += cols.map((k) => {
+    const has = (k in f) && typeof f[k] !== 'object' && f[k] !== null
+    const v = has ? String(f[k]) : ''
+    return '<span class="cfld" title="' + esc(v) + '">' + (has ? highlight(v) : '<span class="cnull">·</span>') + '</span>'
+  }).join('')
+  cells += '<span class="cmsg" title="' + esc(ev.msg || ev.raw) + '">' + highlight(ev.msg || ev.raw) +
+    (dupCount > 1 ? ' <span class="dup">×' + dupCount + '</span>' : '') + '</span>'
+  return '<div class="crow ' + ev.level + '">' + cells + '</div>'
 }
 
 function render () {
@@ -481,7 +511,15 @@ function render () {
     })
     if (prev) out.push([prev, cnt])
   } else { disp.forEach((ev) => out.push([ev, 1])) }
-  logEl.innerHTML = out.map(([ev, c]) => compact ? compactRow(ev, c) : rowHtml(ev, c)).join('')
+  if (compact) {
+    const cols = compactCols(out)
+    logEl.style.setProperty('--cols', compactTemplate(cols))
+    logEl.classList.add('compactmode')
+    logEl.innerHTML = compactHead(cols) + out.map(([ev, c]) => compactRow(ev, c, cols)).join('')
+  } else {
+    logEl.classList.remove('compactmode')
+    logEl.innerHTML = out.map(([ev, c]) => rowHtml(ev, c)).join('')
+  }
   if (!out.length) {
     emptyEl.innerHTML = searchMode ? 'No matches in history.' : (appFilter ? 'No logs for <b>' + esc(appFilter) + '</b> in this range.' : 'Waiting for logs…')
     logEl.appendChild(emptyEl); emptyEl.style.display = 'block'
