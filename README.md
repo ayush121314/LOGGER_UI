@@ -17,7 +17,7 @@ dashboard in the browser — while still printing to your terminal unchanged.
 ## Install
 
 ```bash
-git clone https://github.com/ayush121314/LOGGER_UI logapp
+git clone https://github.com/ayush121314/logapp
 cd logapp
 ./install.sh          # adds `logapp` + `--logapp` to your ~/.zshrc
 source ~/.zshrc       # or open a new terminal
