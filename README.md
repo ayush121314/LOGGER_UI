@@ -36,14 +36,23 @@ npm install -g logapp-ui
 
 Then pipe anything into it: `npm start | logapp`.
 
-To also get the `--logapp` shorthand (a zsh global alias that rewrites `--logapp` → `| logapp`, so you can append it to the end of any command), clone and run the installer:
+### Enable the `--logapp` shorthand (optional)
+
+`npx` / `npm install -g` give you the `logapp` command, but **not** the `--logapp` shorthand — that's a zsh global alias. Enable it in one command:
 
 ```bash
-git clone https://github.com/ayush121314/logapp
-cd logapp
-./install.sh          # adds `logapp` + `--logapp` to your ~/.zshrc
-source ~/.zshrc       # or open a new terminal
+npm install -g logapp-ui
+logapp --install-alias    # adds the zsh `--logapp` shortcut to ~/.zshrc
+source ~/.zshrc           # or open a new terminal
 ```
+
+Now you can append `--logapp` to the end of any command (it rewrites to `| logapp`):
+
+```bash
+npm start --logapp        # same as: npm start | logapp
+```
+
+(Cloning the repo and running `./install.sh` does the same thing.)
 
 logapp itself has **zero dependencies** — it uses only Node's standard library.
 
