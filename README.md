@@ -1,6 +1,8 @@
 # logapp
 
 [![CI](https://github.com/ayush121314/logapp/actions/workflows/ci.yml/badge.svg)](https://github.com/ayush121314/logapp/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/logapp.svg)](https://www.npmjs.com/package/logapp)
+[![npm downloads](https://img.shields.io/npm/dm/logapp.svg)](https://www.npmjs.com/package/logapp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A516-339933?logo=node.js&logoColor=white)](package.json)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-blue)
@@ -14,7 +16,7 @@ Pipe any process into `logapp` and watch its logs stream live in Chrome at
 `http://localhost:9999` — search, level filters, an Apps dropdown, pretty-JSON or a
 compact table, pause, and download. Zero dependencies (pure Node), zero changes to your app.
 
-![logapp UI](docs/screenshot.png)
+![logapp — live Grafana-style log viewer](docs/demo.gif)
 
 ## Why
 
@@ -24,6 +26,18 @@ dashboard in the browser — while still printing to your terminal unchanged.
 
 ## Install
 
+**From npm** — no clone needed:
+
+```bash
+npx logapp               # run it on the fly
+# or install the command globally:
+npm install -g logapp
+```
+
+Then pipe anything into it: `npm start | logapp`.
+
+To also get the `--logapp` shorthand (a zsh global alias that rewrites `--logapp` → `| logapp`, so you can append it to the end of any command), clone and run the installer:
+
 ```bash
 git clone https://github.com/ayush121314/logapp
 cd logapp
@@ -31,7 +45,7 @@ cd logapp
 source ~/.zshrc       # or open a new terminal
 ```
 
-No `npm install` needed — logapp uses only Node's standard library.
+logapp itself has **zero dependencies** — it uses only Node's standard library.
 
 ## Usage
 
