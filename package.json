@@ -12,13 +12,39 @@
   "keywords": [
     "logs",
     "log-viewer",
+    "log-explorer",
     "grafana",
     "live-tail",
+    "tail",
     "sse",
-    "pino"
+    "pino",
+    "developer-tools",
+    "observability",
+    "cli",
+    "zero-dependencies"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ayush121314/logapp.git"
+  },
+  "homepage": "https://github.com/ayush121314/logapp#readme",
+  "bugs": {
+    "url": "https://github.com/ayush121314/logapp/issues"
+  },
+  "author": "Ayush Singh Chauhan (https://github.com/ayush121314)",
   "license": "MIT",
+  "files": [
+    "bin/",
+    "public/",
+    "install.sh",
+    "LICENSE",
+    "README.md"
+  ],
   "engines": {
     "node": ">=16"
-  }
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ]
 }

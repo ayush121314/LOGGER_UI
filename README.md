@@ -1,5 +1,13 @@
 # logapp
 
+[![CI](https://github.com/ayush121314/logapp/actions/workflows/ci.yml/badge.svg)](https://github.com/ayush121314/logapp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A516-339933?logo=node.js&logoColor=white)](package.json)
+![Zero dependencies](https://img.shields.io/badge/dependencies-0-blue)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
+[![GitHub stars](https://img.shields.io/github/stars/ayush121314/logapp?style=social)](https://github.com/ayush121314/logapp/stargazers)
+
 A live log viewer with a **Grafana-style browser UI** for any local server.
 
 Pipe any process into `logapp` and watch its logs stream live in Chrome at
@@ -146,6 +154,10 @@ light even under a firehose; older history comes from disk on demand.
 
 Stop the daemon with `logapp --stop`. Run the backend tests with `npm test`.
 
+## Contributing
+
+Contributions are welcome — logapp is small and dependency-free, so it's easy to hack on. See [CONTRIBUTING.md](CONTRIBUTING.md), and please keep `npm test` green and add no runtime dependencies. Bugs and ideas: open an [issue](https://github.com/ayush121314/logapp/issues).
+
 ## License
 
-MIT
+[MIT](LICENSE) © Ayush Singh Chauhan
