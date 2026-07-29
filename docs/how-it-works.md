@@ -41,12 +41,19 @@
 You run your server the way you always do, and append `--logapp` (or pipe `| logapp`). logapp captures the stdout, streams it live to a browser tab, writes it to disk per repo, and lets you search / filter / time-range / scroll back through the full history.
 
 ```
-# the whole thing is two files + a tiny CLI
+# a small, dependency-free codebase, organised into modules (SOLID)
 logapp/
-├─ bin/logapp.js      // ~600 lines — CLI + daemon (HTTP + SSE + storage)
-├─ public/index.html  // ~760 lines — the entire single-page UI
-├─ test/e2e.js        // dependency-free backend E2E (npm test)
-└─ install.sh         // wires the zsh `--logapp` alias
+├─ bin/logapp.js        // thin entry point → lib/Cli
+├─ lib/                 // the backend, split by responsibility
+│  ├─ shared/           // config, paths, time, health, LineSplitter
+│  ├─ parsing/          // EventParser (Strategy) + level mapping
+│  ├─ daemon/           // RingBuffer, SegmentStore, StreamRegistry, SseHub,
+│  │  │                 //   Ingestor, QueryService, PortDetector, Daemon…
+│  │  └─ router/        // Router + httpServer (route handlers)
+│  └─ client/           // Discovery, Launcher, PipeClient
+├─ public/index.html    // the entire single-page UI (dependency-free)
+├─ test/e2e.js          // dependency-free backend E2E (npm test)
+└─ install.sh           // wires the zsh `--logapp` alias
 ```
 
 ## 30-second mental model
@@ -324,14 +331,27 @@ Verified at **10,000 lines/sec**: the daemon sits at ~12% of one core and Chrome
 
 ## Code structure
 
-**`bin/logapp.js` (~600 lines)** — two halves in one file:
-- **Module scope** — config consts, `parseLine`, `queryFile`, lock helpers, and the CLI half (`discoverDaemon`, `pipeToDaemon`, `chooseAndListen`, `main`).
-- **Inside `runDaemon()`** — the daemon's closured state (`streams`, `buffer`, `pending`, `clients`, `streamFiles`, `portsMap`) plus persistence helpers, `ingestEvent`, and the `http.createServer` route table.
+The backend is split into small **single-responsibility** modules under `lib/`, wired together by a composition root (`Daemon`) using constructor **dependency injection**. `bin/logapp.js` is a thin entry point that hands `argv` to `Cli`.
 
-**`public/index.html` (~760 lines)** — three blocks:
-- `<style>` — the whole Grafana-dark theme.
-- `<body>` — nav, sidebar (search/apps/filters/display), volume panel, logs list.
-- `<script>` — state, filter predicates, render loop, histogram, SSE client, and all the event handlers.
+| Module | Responsibility | Pattern |
+| --- | --- | --- |
+| `shared/` | config, paths, IST time, `healthCheck`, `LineSplitter` | — |
+| `parsing/EventParser` | line → normalized event | **Strategy** (JSON vs plain) |
+| `daemon/RingBuffer` | bounded in-RAM live window | — |
+| `daemon/SegmentStore` | per-repo daily segments: write / query / prune / ports | **Repository** |
+| `daemon/StreamRegistry` | streams, status, ports, conns; emits change events | **Observer** (EventEmitter) |
+| `daemon/SseHub` | SSE clients, snapshot-on-connect, 200 ms batching | **Pub/Sub** |
+| `daemon/PortDetector` | process-tree + `lsof` port discovery | Service |
+| `daemon/Ingestor` | parse → count → ring → disk → enqueue | coordinator |
+| `daemon/QueryService` | fan-out `/query` across streams | Service |
+| `daemon/router/*` | route table → handlers | **Command** / OCP |
+| `daemon/Daemon` | construct + inject everything; lock, bind, serve | **Composition root** / DI |
+| `client/{Discovery,Launcher,PipeClient}` | find/spawn the daemon; tee + forward stdin | — |
+| `Cli` | dispatch `--daemon` / `--stop` / pipe / wrapper / UI | **Command** |
+
+The **daemon owns no globals** — every collaborator is constructed once in `Daemon.start()` and injected, so each unit is testable in isolation and a new route or parse strategy is added by *registering* one, not by editing a mega-function. The full backend E2E (`npm test`) locks the behaviour, so this decomposition is provably a no-op at runtime.
+
+**`public/index.html`** — the entire single-page UI in three blocks: `<style>` (the Grafana-dark theme), `<body>` (nav, sidebar, volume panel, logs list), and `<script>` (state, filter predicates, render loop, histogram, SSE client, event handlers).
 
 ## Backend function reference (bin/logapp.js)
 

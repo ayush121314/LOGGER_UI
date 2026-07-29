@@ -23,10 +23,14 @@ Then run a server with `… --logapp` (or `| logapp`) and open `http://localhost
 
 | Path | What it is |
 | --- | --- |
-| `bin/logapp.js` | CLI + daemon — HTTP server, SSE, ingest, per-repo storage, `/query` |
+| `bin/logapp.js` | Thin entry point → `lib/Cli` |
+| `lib/shared/` | config, paths, IST time, `healthCheck`, `LineSplitter` |
+| `lib/parsing/` | `EventParser` (Strategy) + level mapping |
+| `lib/daemon/` | `RingBuffer`, `SegmentStore`, `StreamRegistry`, `SseHub`, `Ingestor`, `QueryService`, `PortDetector`, `router/`, `Daemon` (composition root) |
+| `lib/client/` | `Discovery`, `Launcher`, `PipeClient` |
 | `public/index.html` | The entire single-page UI (style + markup + script) |
-| `test/e2e.js` | Dependency-free backend E2E (`npm test`) |
-| `docs/how-it-works.html` | Full internals walkthrough + sequence diagram |
+| `test/e2e.js` | Dependency-free backend E2E (`npm test`) — the behaviour contract |
+| `docs/how-it-works.md` | Full internals walkthrough + sequence diagram |
 
 ## Tests
 

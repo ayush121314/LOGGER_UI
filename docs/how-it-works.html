@@ -122,12 +122,18 @@
   <h2 id="what">What it is</h2>
   <p><strong>logapp</strong> turns any program's stdout into a searchable, filterable, Grafana-like log dashboard in your browser — with <strong>no code changes</strong> to your app and <strong>no dependencies</strong> (only Node's standard library + the browser).</p>
   <p>You run your server the way you always do, and append <code>--logapp</code> (or pipe <code>| logapp</code>). logapp captures the stdout, streams it live to a browser tab, writes it to disk per repo, and lets you search / filter / time-range / scroll back through the full history.</p>
-  <pre><span class="c"># the whole thing is two files + a tiny CLI</span>
+  <pre><span class="c"># a small, dependency-free codebase, organised into modules (SOLID)</span>
 logapp/
-├─ bin/logapp.js      <span class="c">// ~600 lines — CLI + daemon (HTTP + SSE + storage)</span>
-├─ public/index.html  <span class="c">// ~760 lines — the entire single-page UI</span>
-├─ test/e2e.js        <span class="c">// dependency-free backend E2E (npm test)</span>
-└─ install.sh         <span class="c">// wires the zsh `--logapp` alias</span></pre>
+├─ bin/logapp.js        <span class="c">// thin entry point → lib/Cli</span>
+├─ lib/                 <span class="c">// the backend, split by responsibility</span>
+│  ├─ shared/           <span class="c">// config, paths, time, health, LineSplitter</span>
+│  ├─ parsing/          <span class="c">// EventParser (Strategy) + level mapping</span>
+│  ├─ daemon/           <span class="c">// RingBuffer, SegmentStore, StreamRegistry, SseHub…</span>
+│  │  └─ router/        <span class="c">// Router + httpServer (route handlers)</span>
+│  └─ client/           <span class="c">// Discovery, Launcher, PipeClient</span>
+├─ public/index.html    <span class="c">// the entire single-page UI (dependency-free)</span>
+├─ test/e2e.js          <span class="c">// dependency-free backend E2E (npm test)</span>
+└─ install.sh           <span class="c">// wires the zsh `--logapp` alias</span></pre>
 
   <h2 id="tldr">30-second mental model</h2>
   <div class="card">
@@ -359,23 +365,25 @@ pending.push(ev)                       <span class="c">// queued for the next SS
   <div class="note">The mindset shift at this scale: you don't <em>watch</em> a 10k/s stream (no human can) — the live view is a sampled heartbeat, and the real work is <b>search / filter / time-range</b> over the disk history.</div>
 
   <h2 id="structure">Code structure</h2>
-  <div class="grid">
-    <div class="card"><h4>bin/logapp.js <span style="color:var(--faint)">(~600 lines)</span></h4>
-      <p style="color:var(--weak);font-size:13.5px">Two halves in one file:</p>
-      <ul>
-        <li><b>Module scope</b> — config consts, <span class="fn">parseLine</span>, <span class="fn">queryFile</span>, lock helpers, and the CLI half (<span class="fn">discoverDaemon</span>, <span class="fn">pipeToDaemon</span>, <span class="fn">chooseAndListen</span>, <span class="fn">main</span>).</li>
-        <li><b>Inside <span class="fn">runDaemon()</span></b> — the daemon's closured state (<code>streams</code>, <code>buffer</code>, <code>pending</code>, <code>clients</code>, <code>streamFiles</code>, <code>portsMap</code>) plus persistence helpers, <span class="fn">ingestEvent</span>, and the <code>http.createServer</code> route table.</li>
-      </ul>
-    </div>
-    <div class="card"><h4>public/index.html <span style="color:var(--faint)">(~760 lines)</span></h4>
-      <p style="color:var(--weak);font-size:13.5px">Three blocks:</p>
-      <ul>
-        <li><b>&lt;style&gt;</b> — the whole Grafana-dark theme.</li>
-        <li><b>&lt;body&gt;</b> — nav, sidebar (search/apps/filters/display), volume panel, logs list.</li>
-        <li><b>&lt;script&gt;</b> — state, filter predicates, render loop, histogram, SSE client, and all the event handlers.</li>
-      </ul>
-    </div>
-  </div>
+  <p>The backend is split into small <b>single-responsibility</b> modules under <code>lib/</code>, wired by a composition root (<span class="fn">Daemon</span>) using constructor <b>dependency injection</b>. <code>bin/logapp.js</code> is a thin entry point that hands <code>argv</code> to <span class="fn">Cli</span>.</p>
+  <table>
+    <tr><th>Module</th><th>Responsibility</th><th>Pattern</th></tr>
+    <tr><td><code>shared/</code></td><td>config, paths, IST time, <span class="fn">healthCheck</span>, <span class="fn">LineSplitter</span></td><td>—</td></tr>
+    <tr><td class="fn">parsing/EventParser</td><td>line → normalized event</td><td><b>Strategy</b> (JSON vs plain)</td></tr>
+    <tr><td class="fn">daemon/RingBuffer</td><td>bounded in-RAM live window</td><td>—</td></tr>
+    <tr><td class="fn">daemon/SegmentStore</td><td>per-repo daily segments: write / query / prune / ports</td><td><b>Repository</b></td></tr>
+    <tr><td class="fn">daemon/StreamRegistry</td><td>streams, status, ports, conns; emits change events</td><td><b>Observer</b></td></tr>
+    <tr><td class="fn">daemon/SseHub</td><td>SSE clients, snapshot-on-connect, 200ms batching</td><td><b>Pub/Sub</b></td></tr>
+    <tr><td class="fn">daemon/PortDetector</td><td>process-tree + lsof port discovery</td><td>Service</td></tr>
+    <tr><td class="fn">daemon/Ingestor</td><td>parse → count → ring → disk → enqueue</td><td>coordinator</td></tr>
+    <tr><td class="fn">daemon/QueryService</td><td>fan-out <code>/query</code> across streams</td><td>Service</td></tr>
+    <tr><td class="fn">daemon/router/*</td><td>route table → handlers</td><td><b>Command</b> / OCP</td></tr>
+    <tr><td class="fn">daemon/Daemon</td><td>construct + inject everything; lock, bind, serve</td><td><b>Composition root</b> / DI</td></tr>
+    <tr><td class="fn">client/*</td><td>find/spawn the daemon; tee + forward stdin</td><td>—</td></tr>
+    <tr><td class="fn">Cli</td><td>dispatch <code>--daemon</code> / <code>--stop</code> / pipe / wrapper / UI</td><td><b>Command</b></td></tr>
+  </table>
+  <div class="note">The daemon owns <b>no globals</b> — every collaborator is constructed once in <span class="fn">Daemon.start()</span> and injected, so each unit is testable in isolation and a new route or parse strategy is added by <em>registering</em> one, not by editing a mega-function. The backend E2E (<code>npm test</code>) locks the behaviour, so this decomposition is provably a runtime no-op.</div>
+  <p><b>public/index.html</b> — the entire single-page UI in three blocks: <code>&lt;style&gt;</code> (Grafana-dark theme), <code>&lt;body&gt;</code> (nav, sidebar, volume panel, logs list), and <code>&lt;script&gt;</code> (state, filter predicates, render loop, histogram, SSE client, event handlers).</p>
 
   <h2 id="backend-fns">Backend function reference (bin/logapp.js)</h2>
   <table>
