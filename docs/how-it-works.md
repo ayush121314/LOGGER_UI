@@ -353,27 +353,31 @@ The **daemon owns no globals** — every collaborator is constructed once in `Da
 
 **`public/index.html`** — the entire single-page UI in three blocks: `<style>` (the Grafana-dark theme), `<body>` (nav, sidebar, volume panel, logs list), and `<script>` (state, filter predicates, render loop, histogram, SSE client, event handlers).
 
-## Backend function reference (bin/logapp.js)
+## Backend API reference (lib/)
 
-| Function | Role |
-| --- | --- |
-| `parseLine(line, name)` | line → normalized event (JSON or plain text) |
-| `normalizeLevel` / `guessLevel` | map numeric/string levels; infer level from plain text |
-| `queryFile(file, opts, cb)` | reverse chunked read of one file with time/text/level filters |
-| `acquireLock` / `releaseLock` | single-daemon guarantee via `O_EXCL` lock file |
-| `runDaemon()` | the daemon: lock → bind → serve HTTP + SSE; holds all state |
-| ↳ `registerStream(name)` | create/reactivate a stream (past→live) |
-| ↳ `detectPort(…, onFound)` | process-tree + lsof port discovery (nodemon-safe) |
-| ↳ `ingestEvent(ev)` | ring push + disk write + queue for SSE |
-| ↳ `writeToFile` / `openFile` / `closeFile` | per-repo daily-segment append |
-| ↳ `pruneIdle()` | delete day-segments older than the retention window |
-| ↳ `queryStreamSegs(name, opts, cb)` | query only the relevant day-segments, newest-first |
-| ↳ `broadcast(obj)` | write an SSE message to every connected browser |
-| `chooseAndListen` / `tryListen` | bind 9999 with fallback; reuse an existing daemon |
-| `healthCheck` / `discoverDaemon` | find or spawn the daemon; verify it's ours |
-| `pipeToDaemon(name, src, port)` | tee stdin to terminal + forward to `/ingest` (auto-reconnect) |
-| `getPgid` / `ingestPath` | process-group id + the ingest URL with pid/pgid |
-| `main()` | dispatch: `--daemon` / `--stop` / pipe / wrapper / UI |
+| Where | Member | Role |
+| --- | --- | --- |
+| `parsing/EventParser` | `parse(line, name)` | line → normalized event via a strategy list (JSON / plain) |
+| `parsing/levels` | `normalizeLevel` / `guessLevel` | map numeric/string levels; infer level from plain text |
+| `daemon/RingBuffer` | `push(ev)` / `recent(n)` | bounded in-RAM live window (bulk-trimmed) |
+| `daemon/SegmentStore` | `open` / `write` / `close` | per-repo daily-segment append |
+| | `queryFile(file, opts, cb)` | reverse chunked read of one file with time/text/level filters |
+| | `queryStreamSegs(name, opts, cb)` | query only the relevant day-segments, newest-first |
+| | `prune(retainMs)` | delete day-segments older than the retention window |
+| | `loadPorts` / `savePorts` | the `.ports.json` repo→ports map |
+| `daemon/StreamRegistry` | `register` / `addPort` / `setStatusSilent` | streams state; emits `stream` change events (Observer) |
+| `daemon/SseHub` | `addClient` / `broadcast` / `enqueue` / `startFlushTimer` | SSE clients, snapshot-on-connect, 200 ms batching |
+| `daemon/PortDetector` | `detect({pgid, clientPid, …, onFound})` | process-tree + lsof port discovery (nodemon-safe) |
+| `daemon/Ingestor` | `ingestLine(line, name)` | parse → count → ring → disk → enqueue |
+| `daemon/QueryService` | `query(stream, opts, cb)` | fan-out `/query` across streams and merge |
+| `daemon/DaemonLock` | `acquire` / `release` | single-daemon guarantee via `O_EXCL` lock file |
+| `daemon/PortBinder` | `chooseAndListen` / `tryListen` | bind 9999 with fallback; reuse an existing daemon |
+| `daemon/router/Router` | `get` / `post` / `handle` | register + dispatch route handlers (OCP) |
+| `daemon/Daemon` | `start()` | composition root: lock → build+inject → bind → serve |
+| `shared/health` | `healthCheck(port)` | verify a daemon answers `{"ok":true}` |
+| `client/Discovery` | `discoverDaemon()` | find or spawn the daemon |
+| `client/PipeClient` | `pipeToDaemon(name, src, port)` | tee stdin to terminal + forward to `/ingest` (auto-reconnect) |
+| `Cli` | `run(argv)` | dispatch: `--daemon` / `--stop` / pipe / wrapper / UI |
 
 ## Frontend function reference (public/index.html)
 

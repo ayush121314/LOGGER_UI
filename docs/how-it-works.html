@@ -385,26 +385,27 @@ pending.push(ev)                       <span class="c">// queued for the next SS
   <div class="note">The daemon owns <b>no globals</b> — every collaborator is constructed once in <span class="fn">Daemon.start()</span> and injected, so each unit is testable in isolation and a new route or parse strategy is added by <em>registering</em> one, not by editing a mega-function. The backend E2E (<code>npm test</code>) locks the behaviour, so this decomposition is provably a runtime no-op.</div>
   <p><b>public/index.html</b> — the entire single-page UI in three blocks: <code>&lt;style&gt;</code> (Grafana-dark theme), <code>&lt;body&gt;</code> (nav, sidebar, volume panel, logs list), and <code>&lt;script&gt;</code> (state, filter predicates, render loop, histogram, SSE client, event handlers).</p>
 
-  <h2 id="backend-fns">Backend function reference (bin/logapp.js)</h2>
+  <h2 id="backend-fns">Backend API reference (lib/)</h2>
   <table>
-    <tr><th>Function</th><th>Role</th></tr>
-    <tr><td class="fn">parseLine(line, name)</td><td>line → normalized event (JSON or plain text)</td></tr>
-    <tr><td class="fn">normalizeLevel / guessLevel</td><td>map numeric/string levels; infer level from plain text</td></tr>
-    <tr><td class="fn">queryFile(file, opts, cb)</td><td>reverse chunked read of one file with time/text/level filters</td></tr>
-    <tr><td class="fn">acquireLock / releaseLock</td><td>single-daemon guarantee via <code>O_EXCL</code> lock file</td></tr>
-    <tr><td class="fn">runDaemon()</td><td>the daemon: lock → bind → serve HTTP + SSE; holds all state</td></tr>
-    <tr><td class="fn">↳ registerStream(name)</td><td>create/reactivate a stream (past→live)</td></tr>
-    <tr><td class="fn">↳ detectPort(…, onFound)</td><td>process-tree + lsof port discovery (nodemon-safe)</td></tr>
-    <tr><td class="fn">↳ ingestEvent(ev)</td><td>ring push + disk write + queue for SSE</td></tr>
-    <tr><td class="fn">↳ writeToFile / openFile / closeFile</td><td>per-repo daily-segment append</td></tr>
-    <tr><td class="fn">↳ pruneIdle()</td><td>delete day-segments older than the retention window</td></tr>
-    <tr><td class="fn">↳ queryStreamSegs(name, opts, cb)</td><td>query only the relevant day-segments, newest-first</td></tr>
-    <tr><td class="fn">↳ broadcast(obj)</td><td>write an SSE message to every connected browser</td></tr>
-    <tr><td class="fn">chooseAndListen / tryListen</td><td>bind 9999 with fallback; reuse an existing daemon</td></tr>
-    <tr><td class="fn">healthCheck / discoverDaemon</td><td>find or spawn the daemon; verify it's ours</td></tr>
-    <tr><td class="fn">pipeToDaemon(name, src, port)</td><td>tee stdin to terminal + forward to <code>/ingest</code> (auto-reconnect)</td></tr>
-    <tr><td class="fn">getPgid / ingestPath</td><td>process-group id + the ingest URL with pid/pgid</td></tr>
-    <tr><td class="fn">main()</td><td>dispatch: <code>--daemon</code> / <code>--stop</code> / pipe / wrapper / UI</td></tr>
+    <tr><th>Where</th><th>Member</th><th>Role</th></tr>
+    <tr><td class="fn">parsing/EventParser</td><td class="fn">parse(line, name)</td><td>line → normalized event via a strategy list (JSON / plain)</td></tr>
+    <tr><td class="fn">parsing/levels</td><td class="fn">normalizeLevel / guessLevel</td><td>map numeric/string levels; infer level from plain text</td></tr>
+    <tr><td class="fn">daemon/RingBuffer</td><td class="fn">push / recent</td><td>bounded in-RAM live window (bulk-trimmed)</td></tr>
+    <tr><td class="fn">daemon/SegmentStore</td><td class="fn">open / write / close</td><td>per-repo daily-segment append</td></tr>
+    <tr><td></td><td class="fn">queryFile / queryStreamSegs</td><td>reverse chunked read; query only the relevant day-segments</td></tr>
+    <tr><td></td><td class="fn">prune / loadPorts / savePorts</td><td>retention unlink; the <code>.ports.json</code> repo→ports map</td></tr>
+    <tr><td class="fn">daemon/StreamRegistry</td><td class="fn">register / addPort / setStatus</td><td>streams state; emits <code>stream</code> change events (Observer)</td></tr>
+    <tr><td class="fn">daemon/SseHub</td><td class="fn">addClient / broadcast / enqueue</td><td>SSE clients, snapshot-on-connect, 200ms batching</td></tr>
+    <tr><td class="fn">daemon/PortDetector</td><td class="fn">detect({…, onFound})</td><td>process-tree + lsof port discovery (nodemon-safe)</td></tr>
+    <tr><td class="fn">daemon/Ingestor</td><td class="fn">ingestLine(line, name)</td><td>parse → count → ring → disk → enqueue</td></tr>
+    <tr><td class="fn">daemon/QueryService</td><td class="fn">query(stream, opts, cb)</td><td>fan-out <code>/query</code> across streams and merge</td></tr>
+    <tr><td class="fn">daemon/DaemonLock</td><td class="fn">acquire / release</td><td>single-daemon guarantee via <code>O_EXCL</code> lock file</td></tr>
+    <tr><td class="fn">daemon/PortBinder</td><td class="fn">chooseAndListen / tryListen</td><td>bind 9999 with fallback; reuse an existing daemon</td></tr>
+    <tr><td class="fn">daemon/router/Router</td><td class="fn">get / post / handle</td><td>register + dispatch route handlers (OCP)</td></tr>
+    <tr><td class="fn">daemon/Daemon</td><td class="fn">start()</td><td>composition root: lock → build+inject → bind → serve</td></tr>
+    <tr><td class="fn">client/Discovery</td><td class="fn">discoverDaemon()</td><td>find or spawn the daemon; verify it's ours</td></tr>
+    <tr><td class="fn">client/PipeClient</td><td class="fn">pipeToDaemon(name, src, port)</td><td>tee stdin to terminal + forward to <code>/ingest</code></td></tr>
+    <tr><td class="fn">Cli</td><td class="fn">run(argv)</td><td>dispatch: <code>--daemon</code> / <code>--stop</code> / pipe / wrapper / UI</td></tr>
   </table>
 
   <h2 id="frontend-fns">Frontend function reference (public/index.html)</h2>

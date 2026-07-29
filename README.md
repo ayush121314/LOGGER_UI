@@ -11,8 +11,8 @@
 A live log viewer with a **Grafana-style browser UI** for any local server.
 
 Pipe any process into `logapp` and watch its logs stream live in Chrome at
-`http://localhost:9999` — search, level filters, per-service tabs, JSON expand,
-pause, and download. Zero dependencies (pure Node), zero changes to your app.
+`http://localhost:9999` — search, level filters, an Apps dropdown, pretty-JSON or a
+compact table, pause, and download. Zero dependencies (pure Node), zero changes to your app.
 
 ![logapp UI](docs/screenshot.png)
 
@@ -153,6 +153,24 @@ light even under a firehose; older history comes from disk on demand.
 - The UI (`public/index.html`) is a single dependency-free page.
 
 Stop the daemon with `logapp --stop`. Run the backend tests with `npm test`.
+
+## Architecture
+
+The backend is organised into small **single-responsibility modules** under `lib/`, wired by a composition root (`Daemon`) with constructor **dependency injection**. `bin/logapp.js` is just a thin entry point.
+
+```
+lib/
+├─ shared/    config · paths · time · health · LineSplitter
+├─ parsing/   EventParser (Strategy) + level mapping
+├─ daemon/    RingBuffer · SegmentStore (Repository) · StreamRegistry (Observer)
+│  │          SseHub (Pub/Sub) · Ingestor · QueryService · PortDetector · Daemon (DI root)
+│  └─ router/ Router + httpServer (route handlers — Command / OCP)
+└─ client/    Discovery · Launcher · PipeClient
+```
+
+Patterns used: **Strategy, Repository, Observer, Pub/Sub, Command, Composition Root / DI**, plus OCP route registration. The daemon holds no module-level state — every collaborator is constructed once in `Daemon.start()` and injected, so units are testable in isolation and new routes/parse-strategies are added by *registering* one. Runtime behaviour (pipe → `/ingest` → parse → ring + disk + SSE) is unchanged and **locked by the backend E2E** (`npm test`).
+
+> 📖 Full internals + a sequence diagram: [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## Contributing
 
