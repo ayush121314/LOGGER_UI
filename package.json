@@ -1,5 +1,5 @@
 {
-  "name": "logapp",
+  "name": "logapp-ui",
   "version": "1.1.0",
   "description": "Live log viewer with a Grafana-style browser UI for any local server. Pipe a process into it and watch live logs at localhost:9999.",
   "bin": {

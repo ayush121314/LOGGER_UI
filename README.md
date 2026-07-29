@@ -1,8 +1,8 @@
 # logapp
 
 [![CI](https://github.com/ayush121314/logapp/actions/workflows/ci.yml/badge.svg)](https://github.com/ayush121314/logapp/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/logapp.svg)](https://www.npmjs.com/package/logapp)
-[![npm downloads](https://img.shields.io/npm/dm/logapp.svg)](https://www.npmjs.com/package/logapp)
+[![npm version](https://img.shields.io/npm/v/logapp-ui.svg)](https://www.npmjs.com/package/logapp-ui)
+[![npm downloads](https://img.shields.io/npm/dm/logapp-ui.svg)](https://www.npmjs.com/package/logapp-ui)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A516-339933?logo=node.js&logoColor=white)](package.json)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-blue)
@@ -26,12 +26,12 @@ dashboard in the browser — while still printing to your terminal unchanged.
 
 ## Install
 
-**From npm** — no clone needed:
+**From npm** — no clone needed (the package is `logapp-ui`; the command it installs is `logapp`):
 
 ```bash
-npx logapp               # run it on the fly
+npx logapp-ui            # run it on the fly
 # or install the command globally:
-npm install -g logapp
+npm install -g logapp-ui
 ```
 
 Then pipe anything into it: `npm start | logapp`.
